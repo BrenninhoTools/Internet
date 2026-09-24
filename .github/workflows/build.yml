@@ -58,7 +58,9 @@ jobs:
           java-version: 17
 
       - name: Fetch SDL
-        run: git clone --depth 1 --branch "$SDL_TAG" https://github.com/libsdl-org/SDL.git android/SDL
+        run: |
+          git clone --depth 1 --branch "$SDL_TAG" https://github.com/libsdl-org/SDL.git android/SDL
+          find android/SDL -name gradle-wrapper.jar -delete
 
       - uses: gradle/actions/setup-gradle@v4
         with:
