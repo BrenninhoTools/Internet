@@ -11,6 +11,8 @@
 #include "node.hpp"
 #include "protocol.hpp"
 #include "registry.hpp"
+#include "sitefiles.hpp"
+#include "storage.hpp"
 
 namespace fs = std::filesystem;
 
@@ -143,9 +145,84 @@ void testNetwork() {
 
 }
 
+void testStorage() {
+    fs::path root = fs::temp_directory_path() / "internet-tests-storage";
+    fs::remove_all(root);
+    fs::create_directories(root);
+
+    std::vector<internet::Entry> entries = {{"internet://a/", "Alpha	Page"}, {"internet://b/x", ""}};
+    internet::saveEntries(root / "entries.txt", entries);
+    std::vector<internet::Entry> loaded = internet::loadEntries(root / "entries.txt");
+    check(loaded.size() == 2 && loaded[0].url == "internet://a/" && loaded[0].title == "Alpha Page" && loaded[1].title.empty(),
+          "entries round trip");
+    check(internet::loadEntries(root / "missing.txt").empty(), "missing entries file");
+
+    internet::Settings settings;
+    settings.palette = 3;
+    settings.intro = false;
+    settings.animations = false;
+    settings.zoom = 1.25f;
+    internet::saveSettings(root / "settings.txt", settings);
+    internet::Settings restored = internet::loadSettings(root / "settings.txt");
+    check(restored.palette == 3 && !restored.intro && !restored.animations && restored.zoom > 1.24f && restored.zoom < 1.26f,
+          "settings round trip");
+    internet::Settings defaults = internet::loadSettings(root / "missing.txt");
+    check(defaults.palette == 0 && defaults.intro && defaults.animations, "default settings");
+
+    fs::remove_all(root);
+}
+
+void testSiteFiles() {
+    fs::path root = fs::temp_directory_path() / "internet-tests-editor";
+    fs::remove_all(root);
+    fs::create_directories(root);
+    std::string error;
+
+    check(internet::isSafeSitePath("docs/page.html") && internet::isSafeSitePath("a.txt"), "safe paths");
+    check(!internet::isSafeSitePath("../x") && !internet::isSafeSitePath("/abs") && !internet::isSafeSitePath("a//b") &&
+              !internet::isSafeSitePath("a\b") && !internet::isSafeSitePath("c:/x") && !internet::isSafeSitePath("") &&
+              !internet::isSafeSitePath("a/../b"),
+          "unsafe paths are rejected");
+    check(!internet::resolveSitePath(root, "../outside.txt"), "resolve rejects escape");
+
+    check(internet::createSitePath(root, "index.html", internet::siteTemplate(0, "demo", "Home"), error), "create file");
+    check(!internet::createSitePath(root, "index.html", "x", error) && !error.empty(), "create refuses duplicates");
+    check(internet::createSitePath(root, "docs/", "", error), "create folder");
+    check(internet::createSitePath(root, "docs/guide.html", internet::siteTemplate(1, "demo", "Guide <1>"), error),
+          "create nested file");
+
+    std::string content;
+    check(internet::readSiteFile(root, "docs/guide.html", content, error) && content.find("Guide &lt;1&gt;") != std::string::npos,
+          "read escapes titles");
+    check(internet::writeSiteFile(root, "index.html", "<h1>Changed</h1>", error), "write file");
+    check(internet::readSiteFile(root, "index.html", content, error) && content == "<h1>Changed</h1>", "read written file");
+
+    std::vector<internet::SiteFile> files = internet::listSiteFiles(root);
+    check(files.size() == 3 && files[0].path == "docs" && files[0].directory && files[1].path == "docs/guide.html" &&
+              files[2].path == "index.html",
+          "listing puts folders first");
+
+    check(internet::renameSitePath(root, "docs/guide.html", "docs/manual.html", error), "rename");
+    check(!internet::renameSitePath(root, "docs/manual.html", "index.html", error), "rename refuses overwrite");
+    check(internet::uniqueSitePath(root, "index.html") == "index-2.html", "unique name");
+    check(internet::isTextPath("a.HTML") && !internet::isTextPath("photo.png"), "text detection");
+
+    check(internet::deleteSitePath(root, "docs", error), "delete folder");
+    check(internet::listSiteFiles(root).size() == 1, "folder contents deleted");
+    check(!internet::deleteSitePath(root, "../x", error), "delete rejects escape");
+
+    for (std::size_t i = 0; i < internet::siteTemplateNames().size(); ++i) {
+        check(internet::siteTemplate(static_cast<int>(i), "demo", "T").find("<h1>T</h1>") != std::string::npos,
+              "template has heading");
+    }
+    fs::remove_all(root);
+}
+
 int main() {
     testUrls();
     testMarkup();
+    testStorage();
+    testSiteFiles();
     testNetwork();
     if (failures == 0) std::cout << "all tests passed\n";
     return failures == 0 ? 0 : 1;

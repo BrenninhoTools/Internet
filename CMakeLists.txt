@@ -25,6 +25,9 @@ set(INTERNET_SDL_DIR "" CACHE PATH "Use this SDL3 source tree instead of downloa
 if(WIN32)
     enable_language(RC)
 endif()
+if(IOS)
+    enable_language(OBJCXX)
+endif()
 
 find_package(Threads REQUIRED)
 
@@ -37,6 +40,8 @@ add_library(internet_core STATIC
     src/core/node.cpp
     src/core/client.cpp
     src/core/markup.cpp
+    src/core/storage.cpp
+    src/core/sitefiles.cpp
 )
 target_include_directories(internet_core PUBLIC src/core)
 target_link_libraries(internet_core PUBLIC Threads::Threads)
@@ -119,15 +124,22 @@ if(INTERNET_BUILD_APP)
         FetchContent_MakeAvailable(glfw imgui)
     endif()
 
-    set(INTERNET_FONT_SOURCE ${imgui_SOURCE_DIR}/misc/fonts/Roboto-Medium.ttf)
-    set(INTERNET_FONT_CPP ${CMAKE_BINARY_DIR}/generated/font_data.cpp)
+    set(INTERNET_FONT_CPP ${CMAKE_BINARY_DIR}/generated/font_data_v2.cpp)
     if(NOT EXISTS ${INTERNET_FONT_CPP})
-        file(READ ${INTERNET_FONT_SOURCE} INTERNET_FONT_HEX HEX)
-        string(LENGTH "${INTERNET_FONT_HEX}" INTERNET_FONT_HEX_LENGTH)
-        math(EXPR INTERNET_FONT_BYTES "${INTERNET_FONT_HEX_LENGTH} / 2")
-        string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," INTERNET_FONT_ARRAY "${INTERNET_FONT_HEX}")
-        file(WRITE ${INTERNET_FONT_CPP}
-            "namespace internet {\nextern const unsigned char kFontData[] = {${INTERNET_FONT_ARRAY}};\nextern const unsigned long kFontSize = ${INTERNET_FONT_BYTES};\n}\n")
+        set(INTERNET_FONT_CONTENT "namespace internet {\n")
+        foreach(INTERNET_FONT_ENTRY "Roboto-Medium.ttf|kFont" "Cousine-Regular.ttf|kMono")
+            string(REPLACE "|" ";" INTERNET_FONT_PARTS "${INTERNET_FONT_ENTRY}")
+            list(GET INTERNET_FONT_PARTS 0 INTERNET_FONT_FILE)
+            list(GET INTERNET_FONT_PARTS 1 INTERNET_FONT_SYMBOL)
+            file(READ ${imgui_SOURCE_DIR}/misc/fonts/${INTERNET_FONT_FILE} INTERNET_FONT_HEX HEX)
+            string(LENGTH "${INTERNET_FONT_HEX}" INTERNET_FONT_HEX_LENGTH)
+            math(EXPR INTERNET_FONT_BYTES "${INTERNET_FONT_HEX_LENGTH} / 2")
+            string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," INTERNET_FONT_ARRAY "${INTERNET_FONT_HEX}")
+            string(APPEND INTERNET_FONT_CONTENT
+                "extern const unsigned char ${INTERNET_FONT_SYMBOL}Data[] = {${INTERNET_FONT_ARRAY}};\nextern const unsigned long ${INTERNET_FONT_SYMBOL}Size = ${INTERNET_FONT_BYTES};\n")
+        endforeach()
+        string(APPEND INTERNET_FONT_CONTENT "}\n")
+        file(WRITE ${INTERNET_FONT_CPP} "${INTERNET_FONT_CONTENT}")
     endif()
 
     set(INTERNET_IMGUI_SOURCES
@@ -163,10 +175,24 @@ if(INTERNET_BUILD_APP)
 
     set(INTERNET_APP_SOURCES
         src/app/app.cpp
+        src/app/chrome.cpp
+        src/app/page.cpp
+        src/app/home.cpp
+        src/app/editor.cpp
         src/app/ui.cpp
+        src/app/theme.cpp
+        src/app/widgets.cpp
         src/app/icon.cpp
         ${INTERNET_FONT_CPP}
     )
+    if(ANDROID)
+        list(APPEND INTERNET_APP_SOURCES src/app/platform_android.cpp)
+    elseif(IOS)
+        list(APPEND INTERNET_APP_SOURCES src/app/platform_ios.mm)
+        set_source_files_properties(src/app/platform_ios.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+    else()
+        list(APPEND INTERNET_APP_SOURCES src/app/platform_desktop.cpp)
+    endif()
     if(INTERNET_APP_BACKEND STREQUAL "SDL")
         list(APPEND INTERNET_APP_SOURCES src/app/main_sdl.cpp)
     else()
@@ -209,6 +235,9 @@ if(INTERNET_BUILD_APP)
 
     target_include_directories(internet-app PRIVATE src/app)
     target_link_libraries(internet-app PRIVATE internet_core imgui_backend)
+    if(IOS)
+        target_link_libraries(internet-app PRIVATE "-framework UIKit" "-framework Foundation")
+    endif()
 
     if(MSVC)
         target_compile_options(internet-app PRIVATE /W4 /utf-8)

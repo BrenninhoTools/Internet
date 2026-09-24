@@ -41,6 +41,17 @@
         <string>UIInterfaceOrientationLandscapeLeft</string>
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.internet.app</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>internet</string>
+            </array>
+        </dict>
+    </array>
     <key>NSLocalNetworkUsageDescription</key>
     <string>Internet connects to registries and sites on your local network.</string>
     <key>CFBundleIcons</key>

@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <string>
 #include <vector>
 
 #if defined(__ANDROID__)
@@ -22,6 +23,7 @@
 
 #include "app.hpp"
 #include "icon.hpp"
+#include "platform.hpp"
 #include "imgui.h"
 #include "imgui_impl_opengl3.h"
 #include "imgui_impl_sdl3.h"
@@ -129,6 +131,7 @@ int main(int, char**) {
     {
         internet::App app(dataDirectory());
         app.setTouchMode(kMobile);
+        app.openLink(internet::platform::takeLaunchLink());
         ImGuiIO& io = ImGui::GetIO();
 
         bool done = false;
@@ -143,7 +146,14 @@ int main(int, char**) {
                     if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED && event.window.windowID == SDL_GetWindowID(window))
                         done = true;
                     if (event.type == SDL_EVENT_WILL_ENTER_BACKGROUND) paused = true;
-                    if (event.type == SDL_EVENT_DID_ENTER_FOREGROUND) paused = false;
+                    if (event.type == SDL_EVENT_DID_ENTER_FOREGROUND) {
+                        paused = false;
+                        app.openLink(internet::platform::takeLaunchLink());
+                    }
+                    if (event.type == SDL_EVENT_DROP_FILE && event.drop.data != nullptr) {
+                        std::string dropped(event.drop.data);
+                        if (dropped.rfind("internet://", 0) == 0) app.openLink(dropped);
+                    }
                     if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_AC_BACK) app.back();
                 } while (SDL_PollEvent(&event));
             }

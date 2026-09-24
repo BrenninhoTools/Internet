@@ -3,18 +3,20 @@
 #endif
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include <GLFW/glfw3.h>
 
 #include "app.hpp"
 #include "icon.hpp"
+#include "storage.hpp"
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 #include "ui.hpp"
 
-int main() {
+int main(int argc, char** argv) {
     if (!glfwInit()) return 1;
 
 #ifdef __APPLE__
@@ -59,7 +61,8 @@ int main() {
     ImGui_ImplOpenGL3_Init(glsl);
 
     {
-        internet::App app;
+        internet::App app(internet::userDataDirectory());
+        if (argc > 1 && std::string(argv[1]).rfind("internet://", 0) == 0) app.openLink(argv[1]);
         while (!glfwWindowShouldClose(window)) {
             glfwWaitEventsTimeout(0.05);
 

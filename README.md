@@ -64,14 +64,43 @@ The window icon is rendered from the same code at startup.
 
 ## The app
 
-Start `internet-app` and press **Quick start**. It runs a registry, hosts the sample site and opens `internet://home/`.
+Start `internet-app`. An animated intro plays (click or press any key to skip), then the home screen opens. Press **Quick start** to run a registry, host the sample site and open `internet://home/`.
 
+- **Home screen**: an animated hero, a search box, action cards (Quick start, Host a site, Start or stop a registry, Edit site, Find a site), the sites that are online, your bookmarks and your recent pages.
+- **Tabs**: open as many as you like with the `+` button. Each tab has its own history, and the status bar shows how many are open.
+- **Command palette** (`Ctrl+K`): type a few letters to run any action, open a site, a bookmark or a recent page, switch the theme, or jump to a file in the editor.
+- **Site editor**: see below.
 - **Registry**: the address the app uses, plus a button to run a registry on this computer.
-- **Host a site**: pick a name and a folder to serve it as `internet://name/`.
+- **Host a site**: pick a name and a folder to serve it as `internet://name/`, then copy or share the link.
 - **Directory**: every node currently registered, click one to open it.
+- **Bookmarks and history**: the star saves a page, the home screen lists bookmarks and recent pages, and both are kept between runs.
+- **Find in page** highlights matching words, and page zoom goes from 60% to 250%.
+- **Appearance**: five accent palettes (Ocean, Sunset, Forest, Violet, Candy), and switches for the intro and the animated backgrounds. The sidebar can be hidden with `Ctrl+B`.
 - **Source** shows the raw page. Binary files offer a save button that writes to `downloads/`.
 
-On narrow screens (phones, small windows) the app switches to a single column: the Menu button opens the sidebar and the page fills the screen. Dragging scrolls, tapping a link opens it, and the Android back button goes back. On phones, hosted sites and downloads live in the app's private data folder.
+Shortcuts: `Ctrl+K` command palette, `Ctrl+T` new tab, `Ctrl+W` close tab, `Ctrl+Tab` next tab, `Ctrl+E` site editor, `Ctrl+S` save, `Ctrl+B` sidebar, `Ctrl+L` address bar, `Ctrl+F` find, `Ctrl+D` bookmark, `Ctrl+H` home, `F5` reload, `Alt+Left` and `Alt+Right` back and forward, `Ctrl` with `+`, `-` or `0` for zoom.
+
+Settings, bookmarks and history are stored in `settings.txt`, `bookmarks.txt` and `history.txt` inside the app's data folder (`%APPDATA%\Internet` on Windows, `~/Library/Application Support/Internet` on macOS, `~/.local/share/Internet` on Linux).
+
+## The site editor
+
+Press the pencil button, `Ctrl+E`, or the **Edit site** card to edit the folder you host.
+
+- **Files**: a tree of the site folder. Create pages and folders from templates (blank page, article, landing page, link list), rename them, delete them. Names are checked so nothing can escape the site folder.
+- **Editor**: a monospaced text editor with snippet buttons (headings, text, links, lists, rule, bold, code) that insert at the cursor, and a **Page link** picker that lists the pages of your site.
+- **Live preview**: shows the page as you type. Choose **Split**, **Edit** or **Preview**.
+- **Save** with `Ctrl+S`. Unsaved files are marked in the tree and in the tab title, and switching files asks before discarding changes. If the saved page is open in a tab it reloads.
+- **Publish** starts hosting (and a registry when none is reachable) and opens the live site.
+
+## Phones and tablets
+
+On narrow screens (phones, small windows) the app switches to a single column: the Menu button opens the sidebar and the page fills the screen. In the editor the **Files**, **Edit** and **Preview** buttons switch between the three panes. Dragging scrolls, tapping a link opens it, and the Android back button goes back.
+
+Native integration:
+
+- **Android**: the share button opens the system share sheet, taps give a short vibration, `internet://` links from other apps open in the app, and hosting a site starts a foreground service with a notification so the site stays online while the app is in the background.
+- **iOS**: the share button opens the share sheet, taps give haptic feedback, and `internet://` links open the app. iOS suspends apps in the background, so hosting pauses when you leave the app.
+- Hosted sites and downloads live in the app's private data folder.
 
 ## The command line
 
