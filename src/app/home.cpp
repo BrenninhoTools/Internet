@@ -174,17 +174,20 @@ void App::drawHero(float width, bool compact) {
 
     int online = static_cast<int>(nodes_.size());
     bool reachable = nodesMessage_.empty();
-    std::string pills[2] = {std::to_string(online) + (online == 1 ? " site online" : " sites online"),
-                            reachable ? (registry_ ? "Local registry running" : "Registry connected")
-                                      : "Registry offline"};
+    SecurityState securityNow = securityState();
+    std::string protection = securityNow == SecurityState::Protected ? "Protected" : (securityNow == SecurityState::Scanning ? "Scanning" : (securityNow == SecurityState::Danger ? "Threats found" : "Needs attention"));
+    std::string pills[3] = {std::to_string(online) + (online == 1 ? " site online" : " sites online"),
+                            reachable ? (registry_ ? "Local registry running" : "Registry connected") : "Registry offline",
+                            protection};
     float pillSize = unit * 0.88f;
     float x = position.x + unit * 1.6f;
     float y = position.y + height - unit * 2.5f;
-    for (int i = 0; i < 2; ++i) {
+    for (int i = 0; i < 3; ++i) {
         float w = textWidth(pillSize, pills[i]) + unit * 1.9f;
         if (x + w > max.x - unit) break;
         list->AddRectFilled(ImVec2(x, y), ImVec2(x + w, y + unit * 1.6f), color(ImVec4(0, 0, 0, 0.32f), enter), unit * 0.8f);
         ImVec4 dot = (i == 1 && !reachable) ? ImVec4(1.0f, 0.42f, 0.42f, 1.0f) : ImVec4(0.45f, 0.95f, 0.55f, 1.0f);
+        if (i == 2) dot = stateColor(securityNow);
         list->AddCircleFilled(ImVec2(x + unit * 0.8f, y + unit * 0.8f), unit * 0.24f, color(dot, enter), 12);
         drawText(list, pillSize, ImVec2(x + unit * 1.4f, y + unit * 0.35f), color(kWhite, enter),
                       pills[i].c_str());
@@ -213,9 +216,10 @@ void App::drawActions(float width) {
          Icon::Globe, kAmber},
         {"edit", "Edit site", "Write pages and preview", Icon::Pencil, kGold},
         {"find", "Find a site", "Search the directory", Icon::Search, kRose},
+        {"security", "Security", "Scan and protection", Icon::Shield, ImVec4(0.28f, 0.84f, 0.52f, 1.0f)},
     };
 
-    int columns = compact_ ? 2 : 5;
+    int columns = compact_ ? 2 : (width >= unit * 64.0f ? 6 : 3);
     float cardWidth = (width - gap * static_cast<float>(columns - 1)) / static_cast<float>(columns);
     ImVec2 size(cardWidth, unit * 5.6f);
     for (std::size_t i = 0; i < actions.size(); ++i) {
@@ -245,6 +249,7 @@ void App::drawActions(float width) {
             }
             if (action.id == "edit") openEditor();
             if (action.id == "find") focusSearch_ = true;
+            if (action.id == "security") openSecurity();
         }
     }
     ImGui::Dummy(ImVec2(0, unit * 0.6f));
@@ -500,6 +505,7 @@ void App::drawToasts() {
     float y = viewport->WorkPos.y + viewport->WorkSize.y - insets_[3] - unit * 4.0f;
     for (std::size_t i = toasts_.size(); i-- > 0;) {
         const Toast& item = toasts_[i];
+        ImVec4 accent = item.kind == ToastKind::Success ? ImVec4(0.28f, 0.84f, 0.52f, 1.0f) : (item.kind == ToastKind::Warning ? ImVec4(1.0f, 0.74f, 0.20f, 1.0f) : (item.kind == ToastKind::Error ? ImVec4(0.95f, 0.30f, 0.34f, 1.0f) : palette().primary));
         float age = static_cast<float>(time_ - item.born);
         float in = easeOutCubic(age / 0.3f);
         float out = 1.0f - smoothStep((age - 2.3f) / 0.5f);
@@ -511,9 +517,9 @@ void App::drawToasts() {
         list->AddRectFilled(ImVec2(min.x + 2.0f, min.y + 4.0f), ImVec2(max.x + 2.0f, max.y + 4.0f), IM_COL32(0, 0, 0, static_cast<int>(80 * out)),
                             unit * 0.6f);
         list->AddRectFilled(min, max, color(ImVec4(0.10f, 0.11f, 0.17f, 0.97f), out), unit * 0.6f);
-        list->AddRect(min, max, color(palette().primary, out), unit * 0.6f, ImDrawFlags_None, 1.4f);
+        list->AddRect(min, max, color(accent, out), unit * 0.6f, ImDrawFlags_None, 1.4f);
         list->AddRectFilled(ImVec2(min.x + unit * 0.5f, min.y + unit * 0.55f), ImVec2(min.x + unit * 0.75f, max.y - unit * 0.55f),
-                            color(palette().secondary, out), 2.0f);
+                            color(accent, out), 2.0f);
         drawText(list, unit, ImVec2(min.x + unit * 1.2f, min.y + unit * 0.7f), color(kWhite, out),
                       fitText(item.text, unit, width - unit * 1.8f).c_str());
         y -= height + unit * 0.5f;

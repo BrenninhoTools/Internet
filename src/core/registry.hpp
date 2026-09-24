@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "firewall.hpp"
 #include "protocol.hpp"
 #include "server.hpp"
 #include "socket.hpp"
@@ -15,6 +16,7 @@ namespace internet {
 
 class Registry {
 public:
+    void setFirewall(Firewall* firewall);
     void start(std::uint16_t port);
     void stop();
     bool running() const;
@@ -36,6 +38,7 @@ private:
 
     std::mutex mutex_;
     std::map<std::string, Entry> entries_;
+    Firewall* firewall_ = nullptr;
     Server server_;
 };
 

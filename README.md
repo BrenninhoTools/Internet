@@ -9,6 +9,8 @@ A custom Internet written in C++17 that runs on Windows, macOS, Linux, Android a
 - **Client**: resolves `internet://name/path` through the registry and fetches it from the node.
 - **Internet app**: a graphical browser that can also run a registry and host sites. It renders HTML (headings, paragraphs, lists, links, rules, preformatted text), shows plain text, and saves binary files.
 - **`internet` command**: the same features for the terminal.
+- **`internet-server`**: a headless server that hosts every folder of a directory as a site, runs a registry and exposes a JSON API.
+- **Security**: an antivirus engine, quarantine and firewall built into the app, the command line and the server.
 
 ## Build
 
@@ -18,7 +20,7 @@ A custom Internet written in C++17 that runs on Windows, macOS, Linux, Android a
     cmake --build build --config Release
     ctest --test-dir build -C Release
 
-This produces `internet` (command line), `internet-app` (graphical app, called `Internet.app` on macOS) and `internet-tests`.
+This produces `internet` (command line), `internet-server`, `internet-app` (graphical app, called `Internet.app` on macOS) and `internet-tests`.
 The app downloads GLFW and Dear ImGui at configure time. Use `-DINTERNET_BUILD_APP=OFF` to build only the command line tools.
 Use `-DINTERNET_APP_BACKEND=SDL` to build the desktop app on the same SDL3 backend the phones use.
 
@@ -102,12 +104,64 @@ Native integration:
 - **iOS**: the share button opens the share sheet, taps give haptic feedback, and `internet://` links open the app. iOS suspends apps in the background, so hosting pauses when you leave the app.
 - Hosted sites and downloads live in the app's private data folder.
 
+The app also accepts launch options: `--registry host:port`, an `internet://` URL, `--security [tab]` and `--scan <path>`.
+
+## Security
+
+The engine lives in `src/core` and is shared by the app, the command line and the server.
+
+- **Scanner**: SHA-256 reputation, byte-pattern rules matched with Aho-Corasick, file type detection, script and PE heuristics, name heuristics (double extensions, executables posing as documents) and ZIP inspection (nesting, path traversal, zip bombs, encrypted entries). Every file gets a score: 85 and above is malicious, 50 and above is suspicious.
+- **Real-time protection**: pages are scanned before they are shown, downloads are refused when malicious, files are scanned when saved in the editor, and hosted sites never serve a malicious file (status `451`).
+- **Quarantine**: dangerous files found by a scan are moved to `security/quarantine` in the data folder, scrambled, and can be restored or deleted.
+- **Firewall**: rate limit, connection limit and temporary bans for abusive computers. Loopback is never limited. The registry also reserves names such as `api` and limits how many names one computer can register.
+- **Definitions**: rules and hashes ship inside the program (`definitions/builtin.def`, packed into `src/core/builtin_defs.inc` with `tools/pack_defs.cpp`) and can be updated from a file or an `internet://` address with `internet av update <source>` or from the Security Center.
+- **Security Center**: open it with the shield button or `Ctrl+J` for the overview, scans, quarantine, firewall statistics and settings. **Test protection** scans a harmless test marker (`Internet.Test.Marker`) to show that the engine works.
+
+This is a compact engine written for this project. It finds what its rules and hashes describe and flags suspicious behaviour, but it is not a replacement for a commercial antivirus.
+
+## The server
+
+    internet-server init [--dir D]
+    internet-server run [--dir D]
+    internet-server scan [--dir D]
+    internet-server token [--dir D]
+
+`init` creates the directory with `sites/`, `data/` and `server.conf`. `run` starts a registry, an API node and one node per folder under `sites/` (folders added or removed while it runs are picked up), scans everything on start and periodically afterwards, and logs to `data/server.log`. The API token is in `data/token.txt`.
+
+## The API
+
+The API is a node named `api`. A request is sent as `API <METHOD> <path> <token>` with an optional JSON or file body, and replies are JSON.
+
+| Method and path | Description |
+| --- | --- |
+| `GET /v1/status` | server state (public) |
+| `GET /v1/sites`, `POST /v1/sites` | list or create sites (`{"name": "..."}`) |
+| `GET`, `DELETE /v1/sites/{name}` | show or remove a site |
+| `GET /v1/sites/{name}/files` | list files |
+| `GET`, `PUT`, `DELETE /v1/sites/{name}/files/{path}` | read, write or delete a file (uploads are scanned, malicious ones return `422`) |
+| `POST /v1/sites/{name}/scan` | scan a site |
+| `POST /v1/scan/{name}` | scan the request body as if it were a file called `name` |
+| `GET /v1/security/status`, `/v1/security/threats` | protection state and recent threats |
+| `GET /v1/security/quarantine`, `DELETE /v1/security/quarantine/{id}` | list or delete quarantined files |
+| `GET /v1/security/firewall`, `DELETE /v1/security/firewall/bans/{host}` | firewall statistics, lift a ban |
+| `POST /v1/security/definitions` | replace the definitions with the request body |
+
+Everything except `/v1/status` needs the token. From the terminal (the body of `PUT` and `POST` is read from standard input):
+
+    internet api GET /v1/sites --token <token>
+    internet api PUT /v1/sites/home/files/index.html --token <token> < index.html
+
 ## The command line
 
     internet registry [--port N]
-    internet serve <name> <directory> [--port N] [--registry host:port]
+    internet serve <name> <directory> [--port N] [--registry host:port] [--no-guard]
     internet get <internet://name/path> [--registry host:port] [--out file]
     internet list [--registry host:port]
+    internet api <METHOD> <path> [--token T] [--out file] [--registry host:port]
+    internet av scan <file-or-folder> [--quarantine] [--json]
+    internet av info
+    internet av update <definitions-file-or-internet-url>
+    internet av quarantine list|restore <id> <destination>|delete <id>
 
 The registry defaults to `127.0.0.1:4000`.
 
@@ -129,7 +183,7 @@ Every message is one header line followed by a body:
 | `LIST` | `OK`, body of `name host port` lines |
 | `GET <path>` (to a node) | `OK <content-type>`, body is the file |
 
-Errors are `ERR <code>` with `400`, `404`, `409`, `413` or `500`. Paths are percent-encoded, so `a b.txt` is sent as `a%20b.txt`.
+The API uses `API <METHOD> <path> <token>`. Errors are `ERR <code>` with `400`, `401`, `403`, `404`, `405`, `409`, `413`, `422`, `429`, `451` or `500`. Paths are percent-encoded, so `a b.txt` is sent as `a%20b.txt`.
 
 ## Limits
 

@@ -42,6 +42,15 @@ add_library(internet_core STATIC
     src/core/markup.cpp
     src/core/storage.cpp
     src/core/sitefiles.cpp
+    src/core/sha256.cpp
+    src/core/deflate.cpp
+    src/core/definitions.cpp
+    src/core/av.cpp
+    src/core/firewall.cpp
+    src/core/quarantine.cpp
+    src/core/security.cpp
+    src/core/json.cpp
+    src/core/siteserver.cpp
 )
 target_include_directories(internet_core PUBLIC src/core)
 target_link_libraries(internet_core PUBLIC Threads::Threads)
@@ -63,9 +72,13 @@ if(NOT INTERNET_MOBILE)
     target_link_libraries(internet PRIVATE internet_core)
     install(TARGETS internet RUNTIME DESTINATION bin)
 
+    add_executable(internet-server src/server/main.cpp)
+    target_link_libraries(internet-server PRIVATE internet_core)
+    install(TARGETS internet-server RUNTIME DESTINATION bin)
+
     if(INTERNET_BUILD_TESTS)
         enable_testing()
-        add_executable(internet-tests tests/tests.cpp)
+        add_executable(internet-tests tests/tests.cpp tests/security_tests.cpp tests/server_tests.cpp)
         target_link_libraries(internet-tests PRIVATE internet_core)
         add_test(NAME internet-tests COMMAND internet-tests)
     endif()
@@ -179,6 +192,7 @@ if(INTERNET_BUILD_APP)
         src/app/page.cpp
         src/app/home.cpp
         src/app/editor.cpp
+        src/app/securitycenter.cpp
         src/app/ui.cpp
         src/app/theme.cpp
         src/app/widgets.cpp

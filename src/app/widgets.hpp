@@ -32,7 +32,11 @@ enum class Icon {
     Share,
     Eye,
     Panel,
-    Command
+    Command,
+    Shield,
+    Warning,
+    Check,
+    Bug
 };
 
 float clamp01(float value);
@@ -45,6 +49,7 @@ ImU32 scaleAlpha(ImU32 color, float alpha);
 void drawIcon(ImDrawList* list, Icon icon, ImVec2 center, float size, ImU32 color);
 void drawEllipse(ImDrawList* list, ImVec2 center, float radiusX, float radiusY, ImU32 color, float thickness);
 void drawSpinner(ImDrawList* list, ImVec2 center, float radius, ImU32 color, float time);
+void drawShield(ImDrawList* list, ImVec2 center, float size, ImU32 color, float pulse, int mark, float time);
 void drawGlobe(ImDrawList* list, ImVec2 center, float radius, float time, ImU32 line, ImU32 fill, ImU32 node,
                float orbit);
 

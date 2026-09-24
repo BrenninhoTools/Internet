@@ -49,7 +49,9 @@ std::string normalizePath(const std::string& path) {
 Message requireOk(const Message& reply, const std::string& context) {
     if (reply.fields.empty() || reply.fields[0] != "OK") {
         std::string code = reply.fields.size() > 1 ? reply.fields[1] : "500";
-        throw FetchError(code, context + ": " + code + " " + describeCode(code));
+        std::string message = context + ": " + code + " " + describeCode(code);
+        if (!reply.body.empty() && reply.body.size() < 400) message += " (" + reply.body + ")";
+        throw FetchError(code, message);
     }
     return reply;
 }
@@ -80,6 +82,8 @@ FetchError::FetchError(std::string code, const std::string& message)
     : std::runtime_error(message), code_(std::move(code)) {}
 
 const std::string& FetchError::code() const { return code_; }
+
+Endpoint resolveNode(const Endpoint& registry, const std::string& name) { return resolve(registry, name); }
 
 bool isInternetUrl(const std::string& url) { return url.compare(0, kScheme.size(), kScheme) == 0; }
 

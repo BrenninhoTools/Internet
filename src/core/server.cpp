@@ -15,6 +15,8 @@ constexpr int kAcceptPollMs = 100;
 
 Server::~Server() { stop(); }
 
+void Server::setFirewall(Firewall* firewall) { firewall_ = firewall; }
+
 void Server::start(std::uint16_t port, ConnectionHandler handler) {
     if (running_) throw std::logic_error("server already running");
     Socket listener = Socket::listen(port);
@@ -43,17 +45,20 @@ void Server::acceptLoop() {
         std::string peer;
         Socket client = listener_.accept(peer);
         if (!client.valid()) continue;
+        Firewall* firewall = firewall_;
+        if (firewall && !firewall->allowConnection(peer)) continue;
         client.setTimeout(kIoTimeoutMs);
         {
             std::lock_guard<std::mutex> lock(mutex_);
             ++active_;
         }
-        std::thread([this, connection = std::move(client), peer]() mutable {
+        std::thread([this, firewall, connection = std::move(client), peer]() mutable {
             try {
                 handler_(connection, peer);
             } catch (...) {
             }
             connection.close();
+            if (firewall) firewall->releaseConnection(peer);
             std::lock_guard<std::mutex> lock(mutex_);
             --active_;
             idle_.notify_all();

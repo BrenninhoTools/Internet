@@ -96,9 +96,20 @@ App::App(fs::path dataDirectory) : dataDir_(std::move(dataDirectory)) {
     applyTheme(settings_.palette);
     splash_ = settings_.intro;
     tabs_.emplace_back();
+
+    security_ = std::make_shared<Security>(dataDir_ / "security");
+    copyText(scanPath_, sizeof scanPath_, defaultSiteFolder());
+    copyText(definitionsSource_, sizeof definitionsSource_, "internet://defs/definitions.txt");
+    applyFirewallSettings();
+    firewall_.setListener([this](const std::string& text) {
+        std::lock_guard<std::mutex> lock(firewallMutex_);
+        pendingFirewallNotice_ = text;
+    });
 }
 
 App::~App() {
+    if (scan_) scan_->cancel = true;
+    if (scanThread_.joinable()) scanThread_.join();
     saveState();
     node_.reset();
     registry_.reset();
@@ -131,6 +142,10 @@ bool App::back() {
         paletteOpen_ = false;
         return true;
     }
+    if (securityView_) {
+        closeSecurity();
+        return true;
+    }
     if (menuOpen_) {
         menuOpen_ = false;
         return true;
@@ -154,9 +169,24 @@ bool App::back() {
     return false;
 }
 
+void App::showSecurity(int tab) { openSecurity(tab); }
+
+void App::scanFolder(const std::string& path) {
+    if (path.empty()) return;
+    copyText(scanPath_, sizeof scanPath_, path);
+    startScan({fs::path(path)}, path);
+    openSecurity(1);
+}
+
+void App::setRegistry(const std::string& endpoint) {
+    if (!endpoint.empty()) copyText(registryBuffer_, sizeof registryBuffer_, endpoint);
+    lastRefresh_ = -100.0;
+}
+
 void App::openLink(const std::string& url) {
     if (url.empty()) return;
     editor_ = false;
+    securityView_ = false;
     if (!home_ || !currentUrl_.empty()) newTab();
     navigate(url);
 }
@@ -175,8 +205,8 @@ Endpoint App::registryEndpoint() const {
     return parseEndpoint(text);
 }
 
-void App::toast(const std::string& text) {
-    toasts_.push_back(Toast{text, ImGui::GetTime()});
+void App::toast(const std::string& text, ToastKind kind) {
+    toasts_.push_back(Toast{text, ImGui::GetTime(), kind});
     if (touch_) platform::haptic(12);
 }
 
@@ -251,6 +281,9 @@ TabState App::captureTab() {
     state.home = home_;
     state.document = std::move(document_);
     state.job = std::move(pageJob_);
+    state.blocked = blocked_;
+    state.allowed = blockOverride_;
+    state.threat = std::move(threat_);
     return state;
 }
 
@@ -270,6 +303,9 @@ void App::restoreTab(TabState&& state) {
     home_ = state.home;
     document_ = std::move(state.document);
     pageJob_ = std::move(state.job);
+    blocked_ = state.blocked;
+    blockOverride_ = state.allowed;
+    threat_ = std::move(state.threat);
     pageFade_ = 0.0f;
     homeSince_ = -1.0;
     matchesShown_ = 0;
@@ -281,6 +317,7 @@ void App::newTab() {
     activeTab_ = static_cast<int>(tabs_.size()) - 1;
     restoreTab(TabState{});
     editor_ = false;
+    securityView_ = false;
     menuOpen_ = false;
 }
 
@@ -290,6 +327,7 @@ void App::switchTab(int index) {
     activeTab_ = index;
     restoreTab(std::move(tabs_[static_cast<std::size_t>(index)]));
     editor_ = false;
+    securityView_ = false;
 }
 
 void App::closeTab(int index) {
@@ -339,6 +377,13 @@ void App::handleShortcuts() {
     }
     if (ctrl && ImGui::IsKeyPressed(ImGuiKey_D, false)) toggleBookmark();
     if (ctrl && ImGui::IsKeyPressed(ImGuiKey_H, false)) goHome();
+    if (ctrl && ImGui::IsKeyPressed(ImGuiKey_J, false)) {
+        if (securityView_) {
+            closeSecurity();
+        } else {
+            openSecurity();
+        }
+    }
     if (ctrl && ImGui::IsKeyPressed(ImGuiKey_T, false)) newTab();
     if (ctrl && ImGui::IsKeyPressed(ImGuiKey_W, false)) closeTab(activeTab_);
     if (ctrl && ImGui::IsKeyPressed(ImGuiKey_B, false)) sidebarOpen_ = !sidebarOpen_;
@@ -364,6 +409,7 @@ void App::handleShortcuts() {
         setZoom(settings_.zoom - 0.1f);
     if (ctrl && (ImGui::IsKeyPressed(ImGuiKey_0, false) || ImGui::IsKeyPressed(ImGuiKey_Keypad0, false))) setZoom(1.0f);
     if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) && findOpen_) findOpen_ = false;
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) && securityView_ && !ImGui::IsAnyItemActive()) closeSecurity();
 }
 
 void App::draw() {
@@ -372,13 +418,14 @@ void App::draw() {
     time_ = ImGui::GetTime();
     if (settings_.animations || splash_) particles_.update(dt_);
     pollJobs();
+    pollSecurity();
     hoveredLink_.clear();
     clickedLink_.clear();
     if (!splash_) handleShortcuts();
     pageFade_ = std::min(1.0f, pageFade_ + dt_ * 3.5f);
     approach(sidebarAnim_, sidebarOpen_ ? 1.0f : 0.0f, 14.0f, dt_);
     approach(paletteAnim_, paletteOpen_ ? 1.0f : 0.0f, 18.0f, dt_);
-    int viewKey = (editor_ ? 2 : (home_ ? 0 : 1)) * 100 + activeTab_;
+    int viewKey = (securityView_ ? 3 : (editor_ ? 2 : (home_ ? 0 : 1))) * 100 + activeTab_;
     if (viewKey != viewKey_) {
         viewKey_ = viewKey;
         pageFade_ = 0.0f;
@@ -446,6 +493,7 @@ void App::draw() {
     }
     if (!clickedLink_.empty()) {
         editor_ = false;
+        securityView_ = false;
         navigate(clickedLink_);
     }
 
@@ -462,6 +510,15 @@ void App::pollJobs() {
         loading_ = false;
         if (result.ok) {
             failed_ = false;
+            threat_ = std::move(result.threat);
+            blocked_ = threat_.verdict == Verdict::Malicious;
+            blockOverride_ = false;
+            if (blocked_) {
+                security_->noteBlocked("page", result.url, threat_.findings.empty() ? "malicious content" : threat_.findings[0].rule);
+                toast("Blocked a dangerous page", ToastKind::Error);
+            } else if (threat_.verdict == Verdict::Suspicious) {
+                toast("This page looks suspicious", ToastKind::Warning);
+            }
             contentType_ = result.contentType;
             body_ = std::move(result.body);
             binary_ = !isTextType(contentType_);
@@ -501,6 +558,7 @@ void App::pollJobs() {
             std::string target = pendingNavigation_;
             pendingNavigation_.clear();
             editor_ = false;
+            securityView_ = false;
             navigate(target);
         }
     }
@@ -560,9 +618,15 @@ void App::navigate(const std::string& url, bool record) {
     failed_ = false;
     status_ = "Loading " + target;
 
+    blocked_ = false;
+    blockOverride_ = false;
+    threat_ = ThreatInfo{};
+
+    bool scanPages = security_->settings().realtime;
+    std::shared_ptr<Security> security = security_;
     pageJob_ = std::make_shared<Job<PageResult>>();
     auto job = pageJob_;
-    std::thread([job, endpoint, target] {
+    std::thread([job, endpoint, target, scanPages, security] {
         PageResult result;
         result.url = target;
         try {
@@ -570,6 +634,17 @@ void App::navigate(const std::string& url, bool record) {
             result.ok = true;
             result.contentType = page.contentType;
             result.body = std::move(page.body);
+            if (scanPages) {
+                std::string name = target.substr(target.rfind('/') + 1);
+                if (name.empty()) name = "index.html";
+                if (result.contentType == "text/html" && name.find('.') == std::string::npos) name += ".html";
+                ScanResult scan = security->scanBuffer(name, result.body, "page");
+                result.threat.verdict = scan.verdict;
+                result.threat.score = scan.score;
+                result.threat.sha256 = scan.sha256;
+                result.threat.note = scan.note;
+                result.threat.findings = std::move(scan.findings);
+            }
         } catch (const std::exception& error) {
             result.message = error.what();
         }
@@ -617,6 +692,7 @@ void App::reload() {
 void App::goHome() {
     home_ = true;
     editor_ = false;
+    securityView_ = false;
     menuOpen_ = false;
     homeSince_ = -1.0;
 }
@@ -624,6 +700,7 @@ void App::goHome() {
 void App::startRegistry() {
     try {
         auto created = std::make_unique<Registry>();
+        created->setFirewall(&firewall_);
         created->start(static_cast<std::uint16_t>(registryPort_));
         registry_ = std::move(created);
         copyText(registryBuffer_, sizeof registryBuffer_, "127.0.0.1:" + std::to_string(registryPort_));
@@ -649,6 +726,8 @@ void App::startNode() {
         if (!fs::exists(folder) && folder.lexically_normal().generic_string() == defaultSiteFolder())
             ensureSampleSite(folder);
         auto created = std::make_unique<Node>(trim(nodeName_), folder, registryEndpoint());
+        created->setFirewall(&firewall_);
+        created->setGuard([security = security_](const fs::path& path) { return security->guard(path); });
         created->start(static_cast<std::uint16_t>(nodePort_));
         node_ = std::move(created);
         status_ = "Hosting internet://" + node_->name() + "/";
@@ -692,6 +771,11 @@ void App::quickStart() {
 }
 
 void App::saveDownload() {
+    if (threat_.verdict == Verdict::Malicious && security_->settings().blockDownloads) {
+        security_->noteBlocked("download", currentUrl_, threat_.findings.empty() ? "malicious file" : threat_.findings[0].rule);
+        toast("Download blocked: the file is dangerous", ToastKind::Error);
+        return;
+    }
     std::error_code error;
     fs::path directory = fs::absolute(dataDir_ / "downloads", error);
     fs::create_directories(directory, error);

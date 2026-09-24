@@ -25,6 +25,7 @@ private:
 
 bool isInternetUrl(const std::string& url);
 std::string resolveUrl(const std::string& base, const std::string& href);
+Endpoint resolveNode(const Endpoint& registry, const std::string& name);
 Page fetch(const Endpoint& registry, const std::string& url);
 std::vector<NodeInfo> listNodes(const Endpoint& registry);
 

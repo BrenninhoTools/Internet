@@ -40,7 +40,7 @@ std::string percentEncode(const std::string& text, const std::string& safe);
 bool percentDecode(const std::string& text, std::string& decoded);
 
 Message okMessage(std::vector<std::string> fields = {}, std::string body = {});
-Message errorMessage(const std::string& code);
+Message errorMessage(const std::string& code, const std::string& detail = std::string());
 bool writeMessage(Socket& socket, const Message& message);
 bool readMessage(Socket& socket, Message& message);
 Message exchange(const Endpoint& endpoint, const Message& request);

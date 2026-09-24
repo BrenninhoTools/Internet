@@ -22,6 +22,12 @@ std::string lowered(std::string text) {
 }
 
 void App::drawPage() {
+    if (securityView_) {
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, easeOutCubic(pageFade_));
+        drawSecurity();
+        ImGui::PopStyleVar();
+        return;
+    }
     if (editor_) {
         ImGui::PushStyleVar(ImGuiStyleVar_Alpha, easeOutCubic(pageFade_));
         drawEditor();
@@ -43,17 +49,22 @@ void App::drawPageContent() {
         drawLoading();
     } else if (failed_) {
         drawError();
+    } else if (blocked_ && !blockOverride_) {
+        drawBlocked();
     } else if (currentUrl_.empty()) {
         goHome();
     } else if (binary_) {
+        if (threat_.verdict != Verdict::Clean) drawThreatBanner();
         drawBinary();
     } else if (showSource_) {
+        if (threat_.verdict != Verdict::Clean) drawThreatBanner();
         ImGui::PushFont(monoFont());
         ImGui::SetWindowFontScale(settings_.zoom);
         ImGui::TextUnformatted(body_.c_str(), body_.c_str() + body_.size());
         ImGui::SetWindowFontScale(1.0f);
         ImGui::PopFont();
     } else {
+        if (threat_.verdict != Verdict::Clean) drawThreatBanner();
         drawDocument(document_, true, currentUrl_);
     }
 }

@@ -1,0 +1,351 @@
+version 2026.09.24
+
+hash 275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f EICAR-Test-File 100 Test
+
+rule Test.EICAR 100 Test any any
+desc "Standard antivirus test string"
+x 45494341522d5354414e444152442d414e544956495255532d544553542d46494c4521
+end
+
+rule Internet.Test.Marker 100 Test any any
+desc "Harmless marker used by the Internet test suite"
+s "INTERNET-AV-TEST-MARKER-7f3a9c"
+end
+
+rule Script.Obfuscation.EvalDecode 55 Script html,script,text any
+desc "Script decodes a hidden payload and runs it"
+i "eval(unescape("
+i "eval(atob("
+i "eval(function(p,a,c,k,e"
+i "document.write(unescape("
+i "eval(string.fromcharcode("
+i "eval(decodeuricomponent("
+end
+
+rule Html.HiddenIframe 60 Phishing html,text any
+desc "Invisible iframe that can load content without the visitor noticing"
+I "<iframe"
+i "width=\"0\""
+i "height=\"0\""
+i "width=0 "
+i "height=0 "
+i "display:none"
+i "visibility:hidden"
+end
+
+rule Html.MetaRedirectExternal 40 Phishing html any
+desc "Page redirects the visitor to another address on load"
+I "<meta http-equiv=\"refresh\""
+i "url=http"
+end
+
+rule Html.CredentialForm 55 Phishing html any
+desc "Login form that sends the password to an external address"
+I "type=\"password\""
+I "<form"
+i "action=\"http://"
+i "action=\"https://"
+end
+
+rule Script.CryptoMiner 85 Miner any any
+desc "Cryptocurrency miner"
+i "coinhive"
+i "coin-hive"
+i "cryptonight"
+i "stratum+tcp://"
+i "stratum+ssl://"
+i "minero.cc"
+i "webminepool"
+i "authedmine"
+end
+
+rule Script.CookieExfil 35 Stealer html,script any
+desc "Reads cookies and sends them to a server"
+I "document.cookie"
+i "xmlhttprequest"
+i "fetch("
+i "new image().src"
+i "navigator.sendbeacon("
+end
+
+rule Script.KeyloggerHook 38 Stealer html,script any
+desc "Records key presses and sends them away"
+I "xmlhttprequest"
+i "addeventlistener(\"keydown\""
+i "addeventlistener('keydown'"
+i "addeventlistener(\"keypress\""
+i "addeventlistener('keypress'"
+i "addeventlistener(\"keyup\""
+end
+
+rule Script.DriveByDownload 45 Downloader html,script any
+desc "Page starts a download of a program"
+I "window.location"
+i ".exe\""
+i ".scr\""
+i ".msi\""
+i ".jar\""
+i ".ps1\""
+i ".bat\""
+end
+
+rule Script.WScriptShell 75 Trojan script,shell,html,text any
+desc "Script launches programs through the Windows scripting host"
+I "wscript.shell"
+i ".run("
+i ".exec("
+i "powershell"
+i "cmd /c"
+end
+
+rule Script.Php.Webshell 92 Webshell script,text,html any
+desc "Server script that runs commands sent by a visitor"
+i "eval($_post"
+i "eval($_get"
+i "eval($_request"
+i "eval(base64_decode($_"
+i "assert($_post"
+i "system($_get"
+i "system($_post"
+i "passthru($_"
+i "shell_exec($_"
+i "exec($_post"
+i "exec($_get"
+end
+
+rule Script.PowerShell.EncodedCommand 70 Trojan shell,text,html any
+desc "PowerShell command hidden in an encoded string"
+I "powershell"
+i " -enc "
+i " -encodedcommand"
+end
+
+rule Script.PowerShell.DownloadCradle 70 Downloader shell,text,html any
+desc "PowerShell downloads code from the internet and runs it"
+I "net.webclient"
+I "downloadstring("
+i "iex"
+i "invoke-expression"
+end
+
+rule Script.PowerShell.WebRequestExec 65 Downloader shell,text,html any
+desc "PowerShell fetches a page and evaluates it"
+I "invoke-expression"
+I "invoke-webrequest"
+end
+
+rule Script.PowerShell.HiddenBypass 40 Trojan shell,text,html 2
+desc "PowerShell started hidden with security settings turned off"
+I "powershell"
+i "-windowstyle hidden"
+i "-w hidden"
+i "-executionpolicy bypass"
+i "-ep bypass"
+i "-nop"
+end
+
+rule Script.PowerShell.AmsiBypass 92 Trojan shell,text,html any
+desc "Tries to switch off the Windows malware scan interface"
+i "amsiutils"
+i "amsiinitfailed"
+end
+
+rule Script.PowerShell.ReflectionLoad 55 Trojan shell,text,html any
+desc "Loads a program directly into memory"
+i "[reflection.assembly]::load("
+i "[system.reflection.assembly]::load("
+i "frombase64string("
+end
+
+rule Script.LOLBin.Certutil 78 Downloader shell,text,html any
+desc "Uses a Windows tool to download or decode files"
+I "certutil"
+i "-urlcache"
+i "-decode "
+end
+
+rule Script.LOLBin.Bitsadmin 70 Downloader shell,text,html any
+desc "Uses the background transfer service to download files"
+I "bitsadmin"
+i "/transfer"
+i "/download"
+end
+
+rule Script.LOLBin.Regsvr32 85 Trojan shell,text,html any
+desc "Runs remote code through regsvr32"
+I "regsvr32"
+i "scrobj.dll"
+i "/i:http"
+end
+
+rule Script.LOLBin.Mshta 80 Trojan shell,text,html any
+desc "Runs remote code through mshta"
+I "mshta"
+i "http://"
+i "https://"
+i "vbscript:"
+i "javascript:"
+end
+
+rule Script.Ransomware.BackupDelete 92 Ransomware any any
+desc "Deletes backups and restore points"
+i "vssadmin delete shadows"
+i "vssadmin.exe delete shadows"
+i "wmic shadowcopy delete"
+i "bcdedit /set {default} recoveryenabled no"
+i "wbadmin delete catalog"
+end
+
+rule Script.Persistence.RunKey 40 Suspicious shell,text any
+desc "Registers itself to start with Windows"
+i "currentversion\\run"
+i "schtasks /create"
+end
+
+rule Script.VBS.DownloadExec 82 Downloader shell,text,html any
+desc "Script downloads a file and starts it"
+I "adodb.stream"
+I "savetofile"
+i "xmlhttp"
+i "shell.application"
+i "wscript.shell"
+end
+
+rule Text.RansomNote 75 Ransomware text,html,script 2
+desc "Text that looks like a ransom demand"
+i "your files have been encrypted"
+i "all your files are encrypted"
+i "your important files"
+i "decrypt your files"
+i "pay the ransom"
+i "bitcoin wallet"
+end
+
+rule Script.Sh.CurlPipeShell 30 Downloader shell any
+desc "Downloads a script and runs it without looking"
+I "curl "
+i "| sh"
+i "| bash"
+i "|sh"
+i "|bash"
+end
+
+rule Script.Sh.WgetPipeShell 30 Downloader shell any
+desc "Downloads a script and runs it without looking"
+I "wget "
+i "| sh"
+i "| bash"
+i "|sh"
+i "|bash"
+end
+
+rule Script.Sh.TmpExec 45 Trojan shell any
+desc "Makes a file in the temporary folder executable"
+i "chmod +x /tmp/"
+i "chmod 777 /tmp/"
+end
+
+rule Backdoor.ReverseShell 88 Backdoor any any
+desc "Opens a remote shell back to another computer"
+i "bash -i >& /dev/tcp/"
+i "nc -e /bin/sh"
+i "nc -e /bin/bash"
+i "0<&196;exec 196<>/dev/tcp/"
+i "socat exec:"
+i "python -c 'import socket,subprocess,os"
+end
+
+rule Exploit.Log4Shell 80 Exploit any any
+desc "Log4Shell exploit string"
+i "${jndi:ldap://"
+i "${jndi:rmi://"
+i "${jndi:dns://"
+end
+
+rule Html.Smuggling 40 Downloader html,script any
+desc "Builds a file inside the page and offers it as a download"
+I "new blob("
+i "mssaveoropenblob"
+i "createobjecturl"
+i "download="
+end
+
+rule Embedded.Base64.Executable 75 Trojan html,script,text any
+desc "Program hidden inside encoded text"
+s "TVqQAAMAAAAEAAAA"
+s "TVpQAAIAAAAEAA8A"
+s "TVqAAAEAAAAEAAAA"
+end
+
+rule Exploit.ProcessInjection 72 Trojan pexe,other,elf any
+desc "Program that can inject code into other processes"
+S "VirtualAllocEx"
+S "WriteProcessMemory"
+S "CreateRemoteThread"
+end
+
+rule Trojan.KeyloggerApi 35 Stealer pexe,other any
+desc "Program that listens to the keyboard"
+S "SetWindowsHookEx"
+s "GetAsyncKeyState"
+s "GetKeyboardState"
+end
+
+rule Downloader.UrlDownload 35 Downloader pexe,other any
+desc "Program that downloads and starts files"
+S "URLDownloadToFile"
+s "ShellExecute"
+s "WinExec"
+s "CreateProcess"
+end
+
+rule Ransomware.CryptoFileScan 45 Ransomware pexe,other any
+desc "Program that encrypts files while walking through folders"
+S "CryptEncrypt"
+S "FindFirstFile"
+S "FindNextFile"
+s "CryptGenKey"
+s "CryptImportKey"
+end
+
+rule Evasion.DebuggerChecks 35 Suspicious pexe,other 3
+desc "Program that checks whether it is being analysed"
+s "IsDebuggerPresent"
+s "CheckRemoteDebuggerPresent"
+s "NtQueryInformationProcess"
+s "OutputDebugString"
+end
+
+rule Evasion.VirtualMachine 45 Suspicious pe,other 2
+desc "Program that looks for virtual machines and analysis tools"
+i "vboxservice.exe"
+i "vmtoolsd.exe"
+i "vmwaretray.exe"
+i "sbiedll.dll"
+i "vboxhook.dll"
+w "vboxservice.exe"
+w "vmtoolsd.exe"
+w "sbiedll.dll"
+end
+
+rule Packer.UPX 30 Suspicious pe,elf,other 2
+desc "Program compressed with a packer that is also used to hide malware"
+s "UPX0"
+s "UPX1"
+s "UPX!"
+end
+
+rule Stealer.BrowserData 70 Stealer pe,other,script,text 3
+desc "Program that looks for saved passwords and wallets"
+i "login data"
+i "cookies.sqlite"
+i "logins.json"
+i "key4.db"
+i "\\google\\chrome\\user data"
+i "\\microsoft\\edge\\user data"
+i "wallet.dat"
+w "login data"
+w "cookies.sqlite"
+w "logins.json"
+w "wallet.dat"
+end

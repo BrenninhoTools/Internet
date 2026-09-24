@@ -8,6 +8,7 @@
 #include <string>
 #include <thread>
 
+#include "firewall.hpp"
 #include "socket.hpp"
 
 namespace internet {
@@ -21,6 +22,7 @@ public:
     Server& operator=(const Server&) = delete;
     ~Server();
 
+    void setFirewall(Firewall* firewall);
     void start(std::uint16_t port, ConnectionHandler handler);
     void stop();
     bool running() const;
@@ -31,6 +33,7 @@ private:
 
     Socket listener_;
     ConnectionHandler handler_;
+    Firewall* firewall_ = nullptr;
     std::thread thread_;
     std::atomic<bool> running_{false};
     std::uint16_t port_ = 0;

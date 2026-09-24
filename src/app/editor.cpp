@@ -187,7 +187,24 @@ void App::editorSave() {
     }
     ed_.saved = ed_.text;
     ed_.rescan = true;
-    toast("Saved " + baseName(ed_.current));
+    ed_.securityLevel = 0;
+    ed_.securityNote.clear();
+    if (security_->settings().scanOnSave) {
+        ScanResult scan = security_->scanBuffer(ed_.current, ed_.text, "editor");
+        if (scan.verdict == Verdict::Clean) {
+            ed_.securityLevel = 1;
+            ed_.securityNote = "Security scan: clean";
+            toast("Saved " + baseName(ed_.current), ToastKind::Success);
+        } else {
+            const Finding* strongest = strongestFinding(scan);
+            ed_.securityLevel = scan.verdict == Verdict::Malicious ? 3 : 2;
+            ed_.securityNote = std::string("Security scan: ") + (strongest ? strongest->rule + " - " + strongest->description : "suspicious content");
+            toast("Saved, but the security scan found a problem: " + (strongest ? strongest->rule : std::string("suspicious")),
+                  scan.verdict == Verdict::Malicious ? ToastKind::Error : ToastKind::Warning);
+        }
+    } else {
+        toast("Saved " + baseName(ed_.current), ToastKind::Success);
+    }
     std::string live = editorLiveUrl(ed_.current);
     std::string base = "internet://" + ed_.siteName + "/";
     bool showsThisFile = currentUrl_ == live || (ed_.current == "index.html" && currentUrl_ == base);
@@ -261,6 +278,15 @@ void App::drawEditorHeader(bool compact) {
         if (dirty) {
             ImGui::SameLine();
             ImGui::TextColored(kGold, "unsaved");
+        }
+        if (ed_.securityLevel > 0 && !dirty) {
+            ImGui::SameLine();
+            ImVec2 spot = ImGui::GetCursorScreenPos();
+            float size = ImGui::GetFrameHeight();
+            ImVec4 chip = ed_.securityLevel == 1 ? ImVec4(0.28f, 0.84f, 0.52f, 1.0f) : (ed_.securityLevel == 2 ? ImVec4(1.0f, 0.74f, 0.20f, 1.0f) : ImVec4(0.95f, 0.30f, 0.34f, 1.0f));
+            ImGui::Dummy(ImVec2(size, size));
+            drawIcon(ImGui::GetWindowDrawList(), ed_.securityLevel == 1 ? Icon::Shield : Icon::Warning, ImVec2(spot.x + size * 0.5f, spot.y + size * 0.5f), size * 0.6f, packColor(chip));
+            if (ImGui::IsItemHovered() && !touch_) ImGui::SetTooltip("%s", ed_.securityNote.c_str());
         }
     }
     ImGui::SameLine();

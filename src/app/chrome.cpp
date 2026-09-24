@@ -14,6 +14,8 @@ const ImVec4 kErrorColor(1.0f, 0.42f, 0.42f, 1.0f);
 const ImVec4 kGoodColor(0.45f, 0.85f, 0.5f, 1.0f);
 const ImVec4 kDimColor(0.62f, 0.62f, 0.68f, 1.0f);
 const ImVec4 kGold(1.0f, 0.78f, 0.2f, 1.0f);
+const ImVec4 kSafe(0.28f, 0.84f, 0.52f, 1.0f);
+const ImVec4 kWarn(1.0f, 0.74f, 0.20f, 1.0f);
 const ImVec4 kWhite(1.0f, 1.0f, 1.0f, 1.0f);
 
 std::string lowered(std::string text) {
@@ -195,6 +197,20 @@ void App::drawSidebar() {
         paletteQuery_[0] = '\0';
         paletteIndex_ = 0;
         menuOpen_ = false;
+    }
+    {
+        SecurityState securityStateNow = securityState();
+        ImVec4 tint = stateColor(securityStateNow);
+        std::string label = std::string("Security: ") + (securityStateNow == SecurityState::Protected ? "protected"
+                                                          : securityStateNow == SecurityState::Scanning ? "scanning"
+                                                          : securityStateNow == SecurityState::Danger   ? "threats found"
+                                                                                                       : "needs attention");
+        ImVec4 frameColor = ImGui::GetStyleColorVec4(ImGuiCol_FrameBg);
+        ImGui::PushStyleColor(ImGuiCol_Button, mixColor(frameColor, tint, 0.45f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, mixColor(frameColor, tint, 0.7f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, tint);
+        if (ImGui::Button(label.c_str(), ImVec2(width, 0))) openSecurity();
+        ImGui::PopStyleColor(3);
     }
     if (compact_) ImGui::Checkbox("Show page source", &showSource_);
     ImGui::Spacing();
@@ -394,7 +410,7 @@ void App::drawToolbar(bool compact) {
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - unit * 3.6f);
     } else {
         ImGui::SameLine();
-        float reserve = 5.0f * (frame + spacing) + unit * 6.4f;
+        float reserve = 6.0f * (frame + spacing) + unit * 6.4f;
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - reserve);
     }
 
@@ -413,6 +429,15 @@ void App::drawToolbar(bool compact) {
         ImGui::SameLine();
         if (ImGui::Button("Go")) submitted = true;
     } else {
+        ImGui::SameLine();
+        SecurityState securityStateNow = securityState();
+        if (iconButton("shield", Icon::Shield, "Security Center (Ctrl+J)", true, securityView_, stateColor(securityStateNow))) {
+            if (securityView_) {
+                closeSecurity();
+            } else {
+                openSecurity();
+            }
+        }
         ImGui::SameLine();
         if (iconButton("star", bookmarked ? Icon::StarFilled : Icon::Star, "Bookmark this page (Ctrl+D)", page,
                        bookmarked, bookmarked ? kGold : ImVec4(0, 0, 0, 0)))
@@ -444,6 +469,7 @@ void App::drawToolbar(bool compact) {
     }
     if (submitted) {
         editor_ = false;
+        securityView_ = false;
         navigate(address_);
     }
 
@@ -548,6 +574,22 @@ std::vector<PaletteItem> App::buildPaletteItems() {
             }
         });
     add("Share the current link", "Send it to someone", Icon::Share, colors.primary, [this] { shareCurrent(); });
+    add("Open the Security Center", "Ctrl+J", Icon::Shield, kSafe, [this] { openSecurity(); });
+    add("Quick scan", "Site folder and downloads", Icon::Search, kSafe, [this] {
+        std::vector<std::filesystem::path> roots = {std::filesystem::path(nodeFolder_)};
+        std::error_code error;
+        if (std::filesystem::exists(dataDir_ / "downloads", error)) roots.push_back(dataDir_ / "downloads");
+        startScan(roots, "site folder and downloads");
+        openSecurity(1);
+    });
+    add(security_->settings().realtime ? "Turn real-time protection off" : "Turn real-time protection on", "Security", Icon::Shield, kWarn,
+        [this] {
+            SecuritySettings settings = security_->settings();
+            settings.realtime = !settings.realtime;
+            security_->setSettings(settings);
+            toast(settings.realtime ? "Real-time protection is on" : "Real-time protection is off",
+                  settings.realtime ? ToastKind::Success : ToastKind::Warning);
+        });
     if (!home_ && !editor_ && !currentUrl_.empty()) {
         add(isBookmarked(currentUrl_) ? "Remove bookmark" : "Bookmark this page", "Ctrl+D", Icon::Star, kGold,
             [this] { toggleBookmark(); });

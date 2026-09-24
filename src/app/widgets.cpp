@@ -66,6 +66,52 @@ void drawSpinner(ImDrawList* list, ImVec2 center, float radius, ImU32 color, flo
     list->PathStroke(color, ImDrawFlags_None, std::max(2.0f, radius * 0.28f));
 }
 
+void drawShield(ImDrawList* list, ImVec2 center, float size, ImU32 color, float pulse, int mark, float time) {
+    ImVec4 base = ImGui::ColorConvertU32ToFloat4(color);
+    ImU32 glow = ImGui::ColorConvertFloat4ToU32(ImVec4(base.x, base.y, base.z, 0.10f + 0.08f * pulse));
+    for (int ring = 0; ring < 4; ++ring) list->AddCircleFilled(center, size * (0.62f + 0.16f * static_cast<float>(ring) + 0.05f * pulse), glow, 40);
+
+    const int steps = 10;
+    std::vector<ImVec2> outline;
+    outline.push_back(offset(center, 0.0f, -size * 0.5f));
+    for (int i = 1; i <= steps; ++i) {
+        float t = static_cast<float>(i) / steps;
+        outline.push_back(offset(center, size * 0.42f * t, -size * 0.5f + size * 0.10f * std::sin(t * kPi * 0.5f) - size * 0.02f * t));
+    }
+    for (int i = 1; i <= steps; ++i) {
+        float t = static_cast<float>(i) / steps;
+        float x = size * 0.42f * (1.0f - std::pow(t, 1.8f));
+        float y = -size * 0.4f + size * 0.9f * std::pow(t, 0.9f);
+        outline.push_back(offset(center, x, y));
+    }
+    std::vector<ImVec2> left;
+    for (auto it = outline.rbegin(); it != outline.rend(); ++it) left.push_back(offset(center, -(it->x - center.x), it->y - center.y));
+    std::vector<ImVec2> full = outline;
+    for (std::size_t i = 1; i + 1 < left.size(); ++i) full.push_back(left[i]);
+
+    ImU32 top = ImGui::ColorConvertFloat4ToU32(ImVec4(std::min(1.0f, base.x + 0.18f), std::min(1.0f, base.y + 0.18f), std::min(1.0f, base.z + 0.18f), 1.0f));
+    for (std::size_t i = 1; i + 1 < full.size(); ++i) list->AddTriangleFilled(full[0], full[i], full[i + 1], i % 2 == 0 ? color : top);
+    list->AddPolyline(full.data(), static_cast<int>(full.size()), IM_COL32(255, 255, 255, 235), ImDrawFlags_Closed, std::max(2.0f, size * 0.04f));
+
+    ImU32 white = IM_COL32(255, 255, 255, 255);
+    float thickness = std::max(2.5f, size * 0.07f);
+    if (mark == 0) {
+        list->AddLine(offset(center, -size * 0.18f, size * 0.02f), offset(center, -size * 0.04f, size * 0.16f), white, thickness);
+        list->AddLine(offset(center, -size * 0.04f, size * 0.16f), offset(center, size * 0.2f, -size * 0.14f), white, thickness);
+    } else if (mark == 1) {
+        list->AddLine(offset(center, 0, -size * 0.2f), offset(center, 0, size * 0.06f), white, thickness);
+        list->AddCircleFilled(offset(center, 0, size * 0.2f), thickness * 0.75f, white);
+    } else if (mark == 2) {
+        list->AddLine(offset(center, -size * 0.14f, -size * 0.12f), offset(center, size * 0.14f, size * 0.16f), white, thickness);
+        list->AddLine(offset(center, -size * 0.14f, size * 0.16f), offset(center, size * 0.14f, -size * 0.12f), white, thickness);
+    } else {
+        float start = time * 4.0f;
+        list->PathClear();
+        list->PathArcTo(offset(center, 0, size * 0.02f), size * 0.2f, start, start + 4.2f, 24);
+        list->PathStroke(white, ImDrawFlags_None, thickness);
+    }
+}
+
 void drawGlobe(ImDrawList* list, ImVec2 center, float radius, float time, ImU32 line, ImU32 fill, ImU32 node,
                float orbit) {
     float thickness = std::max(1.5f, radius * 0.07f);
@@ -260,6 +306,35 @@ void drawIcon(ImDrawList* list, Icon icon, ImVec2 c, float s, ImU32 color) {
                           ImDrawFlags_None, thickness);
             for (float x : {-0.28f, 0.28f}) {
                 for (float y : {-0.28f, 0.28f}) list->AddCircle(offset(c, s * x * 1.35f, s * y * 1.35f), s * 0.1f, color, 12, thickness);
+            }
+            break;
+        case Icon::Shield: {
+            ImVec2 outline[7] = {offset(c, 0, -s * 0.46f),        offset(c, s * 0.38f, -s * 0.3f), offset(c, s * 0.38f, s * 0.06f),
+                                 offset(c, s * 0.2f, s * 0.32f), offset(c, 0, s * 0.46f),          offset(c, -s * 0.2f, s * 0.32f),
+                                 offset(c, -s * 0.38f, s * 0.06f)};
+            list->AddPolyline(outline, 7, color, ImDrawFlags_Closed, thickness);
+            list->AddLine(offset(c, -s * 0.38f, -s * 0.3f), offset(c, -s * 0.38f, s * 0.06f), color, thickness);
+            list->AddLine(offset(c, 0, -s * 0.46f), offset(c, -s * 0.38f, -s * 0.3f), color, thickness);
+            break;
+        }
+        case Icon::Warning: {
+            ImVec2 triangle[3] = {offset(c, 0, -s * 0.44f), offset(c, s * 0.46f, s * 0.36f), offset(c, -s * 0.46f, s * 0.36f)};
+            list->AddPolyline(triangle, 3, color, ImDrawFlags_Closed, thickness);
+            list->AddLine(offset(c, 0, -s * 0.12f), offset(c, 0, s * 0.12f), color, thickness);
+            list->AddCircleFilled(offset(c, 0, s * 0.25f), thickness * 0.7f, color);
+            break;
+        }
+        case Icon::Check:
+            list->AddLine(offset(c, -s * 0.38f, s * 0.02f), offset(c, -s * 0.1f, s * 0.3f), color, thickness * 1.3f);
+            list->AddLine(offset(c, -s * 0.1f, s * 0.3f), offset(c, s * 0.4f, -s * 0.3f), color, thickness * 1.3f);
+            break;
+        case Icon::Bug:
+            list->AddCircle(offset(c, 0, s * 0.06f), s * 0.24f, color, 20, thickness);
+            list->AddCircleFilled(offset(c, 0, -s * 0.28f), s * 0.11f, color);
+            for (float side : {-1.0f, 1.0f}) {
+                list->AddLine(offset(c, side * s * 0.24f, -s * 0.02f), offset(c, side * s * 0.46f, -s * 0.12f), color, thickness);
+                list->AddLine(offset(c, side * s * 0.24f, s * 0.1f), offset(c, side * s * 0.46f, s * 0.1f), color, thickness);
+                list->AddLine(offset(c, side * s * 0.2f, s * 0.22f), offset(c, side * s * 0.42f, s * 0.36f), color, thickness);
             }
             break;
     }

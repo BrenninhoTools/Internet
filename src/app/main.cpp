@@ -3,6 +3,7 @@
 #endif
 
 #include <cstdint>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -62,7 +63,25 @@ int main(int argc, char** argv) {
 
     {
         internet::App app(internet::userDataDirectory());
-        if (argc > 1 && std::string(argv[1]).rfind("internet://", 0) == 0) app.openLink(argv[1]);
+        std::string link;
+        std::string scanTarget;
+        int securityTab = -1;
+        for (int i = 1; i < argc; ++i) {
+            std::string arg = argv[i];
+            if (arg == "--registry" && i + 1 < argc) {
+                app.setRegistry(argv[++i]);
+            } else if (arg == "--security") {
+                securityTab = 0;
+                if (i + 1 < argc && std::string(argv[i + 1]).find_first_not_of("0123456789") == std::string::npos) securityTab = std::atoi(argv[++i]);
+            } else if (arg == "--scan" && i + 1 < argc) {
+                scanTarget = argv[++i];
+            } else if (arg.rfind("internet://", 0) == 0) {
+                link = arg;
+            }
+        }
+        if (!link.empty()) app.openLink(link);
+        if (!scanTarget.empty()) app.scanFolder(scanTarget);
+        if (securityTab >= 0) app.showSecurity(securityTab);
         while (!glfwWindowShouldClose(window)) {
             glfwWaitEventsTimeout(0.05);
 

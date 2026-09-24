@@ -62,9 +62,18 @@ Node::Node(std::string name, const fs::path& root, Endpoint registry)
 
 Node::~Node() { stop(); }
 
+void Node::setGuard(GuardFunction guard) { guard_ = std::move(guard); }
+
+void Node::setFirewall(Firewall* firewall) { firewall_ = firewall; }
+
+void Node::setExtension(NodeExtension extension) { extension_ = std::move(extension); }
+
+void Node::setFileServing(bool enabled) { files_ = enabled; }
+
 void Node::start(std::uint16_t port) {
     if (server_.running()) throw std::logic_error("node already running");
-    server_.start(port, [this](Socket& socket, const std::string&) { handle(socket); });
+    server_.setFirewall(firewall_);
+    server_.start(port, [this](Socket& socket, const std::string& peer) { handle(socket, peer); });
     {
         std::lock_guard<std::mutex> lock(mutex_);
         stopping_ = false;
@@ -126,18 +135,28 @@ void Node::withdraw(std::uint16_t port) const {
     }
 }
 
-void Node::handle(Socket& socket) {
+void Node::handle(Socket& socket, const std::string& peer) {
     Message request;
     if (!readMessage(socket, request)) {
+        if (firewall_) firewall_->violation(peer, "malformed request");
         writeMessage(socket, errorMessage("400"));
         return;
     }
-    writeMessage(socket, respond(request));
+    writeMessage(socket, respond(request, peer));
 }
 
-Message Node::respond(const Message& request) {
-    if (request.fields.size() != 2 || request.fields[0] != "GET") return errorMessage("400");
+Message Node::respond(const Message& request, const std::string& peer) {
+    if (firewall_ && !firewall_->allowRequest(peer)) return errorMessage("429", "Too many requests");
     ++requests_;
+    if (extension_) {
+        Message reply;
+        if (extension_(request, peer, reply)) return reply;
+    }
+    if (!files_) return errorMessage("404");
+    if (request.fields.size() != 2 || request.fields[0] != "GET") {
+        if (firewall_) firewall_->violation(peer, "malformed request");
+        return errorMessage("400");
+    }
 
     std::string path;
     if (!percentDecode(request.fields[1], path)) return errorMessage("400");
@@ -154,6 +173,10 @@ Message Node::respond(const Message& request) {
     std::uintmax_t size = fs::file_size(*target, error);
     if (error) return errorMessage("404");
     if (size > kMaxBody) return errorMessage("413");
+    if (guard_) {
+        GuardDecision decision = guard_(*target);
+        if (!decision.allowed) return errorMessage("451", decision.reason);
+    }
 
     std::ifstream stream(*target, std::ios::binary);
     if (!stream) return errorMessage("500");

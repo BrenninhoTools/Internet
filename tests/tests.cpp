@@ -218,12 +218,17 @@ void testSiteFiles() {
     fs::remove_all(root);
 }
 
+int runSecurityTests();
+int runServerTests();
+
 int main() {
     testUrls();
     testMarkup();
     testStorage();
     testSiteFiles();
     testNetwork();
+    failures += runSecurityTests();
+    failures += runServerTests();
     if (failures == 0) std::cout << "all tests passed\n";
     return failures == 0 ? 0 : 1;
 }

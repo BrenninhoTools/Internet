@@ -44,7 +44,13 @@ std::string formatEndpoint(const Endpoint& endpoint) { return endpoint.host + ":
 std::string describeCode(const std::string& code) {
     if (code == "400") return "Bad Request";
     if (code == "404") return "Not Found";
+    if (code == "401") return "Unauthorized";
+    if (code == "403") return "Forbidden";
+    if (code == "405") return "Method Not Allowed";
     if (code == "409") return "Name Already Taken";
+    if (code == "422") return "Rejected";
+    if (code == "429") return "Too Many Requests";
+    if (code == "451") return "Blocked By Security Policy";
     if (code == "413") return "Content Too Large";
     if (code == "500") return "Internal Error";
     return "Unknown Error";
@@ -107,9 +113,10 @@ Message okMessage(std::vector<std::string> fields, std::string body) {
     return message;
 }
 
-Message errorMessage(const std::string& code) {
+Message errorMessage(const std::string& code, const std::string& detail) {
     Message message;
     message.fields = {"ERR", code};
+    message.body = detail;
     return message;
 }
 
