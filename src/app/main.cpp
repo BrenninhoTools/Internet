@@ -2,41 +2,17 @@
 #define GL_SILENCE_DEPRECATION
 #endif
 
-#include <cstdio>
-#include <filesystem>
+#include <cstdint>
+#include <vector>
 
 #include <GLFW/glfw3.h>
 
 #include "app.hpp"
+#include "icon.hpp"
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
-
-namespace {
-
-void loadFont(ImGuiIO& io, float size) {
-    static const ImWchar ranges[] = {0x0020, 0x00FF, 0x2010, 0x2027, 0x2030, 0x203A, 0x20AC, 0x20AC, 0};
-    const char* candidates[] = {
-        "C:/Windows/Fonts/segoeui.ttf",
-        "/System/Library/Fonts/Supplemental/Arial.ttf",
-        "/Library/Fonts/Arial.ttf",
-        "/System/Library/Fonts/Helvetica.ttc",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/TTF/DejaVuSans.ttf",
-        "/usr/share/fonts/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        "/usr/share/fonts/noto/NotoSans-Regular.ttf",
-    };
-    for (const char* path : candidates) {
-        if (!std::filesystem::exists(path)) continue;
-        if (io.Fonts->AddFontFromFileTTF(path, size, nullptr, ranges)) return;
-    }
-    ImFontConfig config;
-    config.SizePixels = size;
-    io.Fonts->AddFontDefault(&config);
-}
-
-}
+#include "ui.hpp"
 
 int main() {
     if (!glfwInit()) return 1;
@@ -61,10 +37,15 @@ int main() {
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
 
+#ifndef __APPLE__
+    std::vector<std::uint8_t> small = internet::renderIcon(48, true);
+    std::vector<std::uint8_t> large = internet::renderIcon(128, true);
+    GLFWimage icons[2] = {{48, 48, small.data()}, {128, 128, large.data()}};
+    glfwSetWindowIcon(window, 2, icons);
+#endif
+
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
-    io.IniFilename = nullptr;
 
     float scale = 1.0f;
 #ifndef __APPLE__
@@ -72,16 +53,7 @@ int main() {
     glfwGetWindowContentScale(window, &scale, &scaleY);
     if (scale < 1.0f) scale = 1.0f;
 #endif
-
-    ImGui::StyleColorsDark();
-    ImGuiStyle& style = ImGui::GetStyle();
-    style.WindowRounding = 4.0f;
-    style.FrameRounding = 4.0f;
-    style.ChildRounding = 4.0f;
-    style.FramePadding = ImVec2(8.0f, 5.0f);
-    style.ItemSpacing = ImVec2(8.0f, 6.0f);
-    style.ScaleAllSizes(scale);
-    loadFont(io, 17.0f * scale);
+    internet::setupUi(scale, false);
 
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl);

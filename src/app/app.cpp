@@ -78,11 +78,43 @@ std::string downloadName(const std::string& url) {
 
 }
 
-App::App() {
+App::App(fs::path dataDirectory) : dataDir_(std::move(dataDirectory)) {
     copyText(registryBuffer_, sizeof registryBuffer_, "127.0.0.1:" + std::to_string(kDefaultRegistryPort));
     copyText(nodeName_, sizeof nodeName_, "home");
-    copyText(nodeFolder_, sizeof nodeFolder_, "sites/home");
+    copyText(nodeFolder_, sizeof nodeFolder_, defaultSiteFolder());
     copyText(address_, sizeof address_, "internet://home/");
+}
+
+std::string App::defaultSiteFolder() const { return (dataDir_ / "sites" / "home").lexically_normal().generic_string(); }
+
+void App::setInsets(float left, float top, float right, float bottom) {
+    insets_[0] = left;
+    insets_[1] = top;
+    insets_[2] = right;
+    insets_[3] = bottom;
+}
+
+void App::setTouchMode(bool enabled) { touch_ = enabled; }
+
+bool App::back() {
+    if (menuOpen_) {
+        menuOpen_ = false;
+        return true;
+    }
+    if (position_ > 0) {
+        goBack();
+        return true;
+    }
+    return false;
+}
+
+void App::touchScroll() {
+    if (!touch_ || !ImGui::IsWindowHovered()) return;
+    ImGuiIO& io = ImGui::GetIO();
+    if (ImGui::IsMouseDragging(ImGuiMouseButton_Left, io.MouseDragThreshold)) {
+        ImGui::SetScrollY(ImGui::GetScrollY() - io.MouseDelta.y);
+        ImGui::SetScrollX(ImGui::GetScrollX() - io.MouseDelta.x);
+    }
 }
 
 App::~App() {
@@ -98,8 +130,9 @@ void App::draw() {
     clickedLink_.clear();
 
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(viewport->WorkPos);
-    ImGui::SetNextWindowSize(viewport->WorkSize);
+    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + insets_[0], viewport->WorkPos.y + insets_[1]));
+    ImGui::SetNextWindowSize(ImVec2(viewport->WorkSize.x - insets_[0] - insets_[2],
+                                    viewport->WorkSize.y - insets_[1] - insets_[3]));
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                              ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
@@ -107,22 +140,46 @@ void App::draw() {
 
     float unit = ImGui::GetFontSize();
     float footer = ImGui::GetFrameHeightWithSpacing() + 2.0f;
-    ImGui::BeginChild("sidebar", ImVec2(unit * 20.0f, -footer), ImGuiChildFlags_Borders);
-    drawSidebar();
-    ImGui::EndChild();
+    compact_ = ImGui::GetContentRegionAvail().x < unit * 42.0f;
+    ImGuiWindowFlags pageFlags = (showSource_ || preformatted_) ? ImGuiWindowFlags_HorizontalScrollbar : ImGuiWindowFlags_None;
 
-    ImGui::SameLine();
-    ImGui::BeginGroup();
-    drawToolbar();
-    ImGui::BeginChild("page", ImVec2(0, -footer), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
-    drawPage();
-    ImGui::EndChild();
-    ImGui::EndGroup();
+    if (compact_) {
+        drawToolbar(true);
+        if (menuOpen_) {
+            ImGui::BeginChild("sidebar", ImVec2(0, -footer), ImGuiChildFlags_Borders);
+            drawSidebar();
+            ImGui::EndChild();
+        } else {
+            ImGui::BeginChild("page", ImVec2(0, -footer), ImGuiChildFlags_Borders, pageFlags);
+            drawPage();
+            ImGui::EndChild();
+        }
+    } else {
+        ImGui::BeginChild("sidebar", ImVec2(unit * 20.0f, -footer), ImGuiChildFlags_Borders);
+        drawSidebar();
+        ImGui::EndChild();
+
+        ImGui::SameLine();
+        ImGui::BeginGroup();
+        drawToolbar(false);
+        ImGui::BeginChild("page", ImVec2(0, -footer), ImGuiChildFlags_Borders, pageFlags);
+        drawPage();
+        ImGui::EndChild();
+        ImGui::EndGroup();
+    }
 
     drawStatusBar();
     ImGui::End();
     ImGui::PopStyleVar();
 
+    ImGuiIO& io = ImGui::GetIO();
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && hoveredLink_.empty()) pressedLink_.clear();
+    if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+        ImVec2 drag = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left, io.MouseDragThreshold);
+        if (!pressedLink_.empty() && drag.x == 0.0f && drag.y == 0.0f && clickedLink_.empty())
+            clickedLink_ = pressedLink_;
+        pressedLink_.clear();
+    }
     if (!clickedLink_.empty()) navigate(clickedLink_);
 }
 
@@ -136,6 +193,8 @@ void App::pollJobs() {
             body_ = std::move(result.body);
             binary_ = !isTextType(contentType_);
             document_ = binary_ ? Document{} : parseContent(contentType_, body_);
+            preformatted_ = std::any_of(document_.blocks.begin(), document_.blocks.end(),
+                                        [](const Block& block) { return block.kind == BlockKind::Preformatted; });
             status_ = "Loaded " + result.url + " (" + contentType_ + ", " + std::to_string(body_.size()) + " bytes)";
         } else {
             failed_ = true;
@@ -214,6 +273,7 @@ void App::navigate(const std::string& url, bool record) {
         position_ = static_cast<int>(history_.size()) - 1;
     }
     currentUrl_ = target;
+    menuOpen_ = false;
     copyText(address_, sizeof address_, target);
     loading_ = true;
     failed_ = false;
@@ -288,7 +348,7 @@ void App::quickStart() {
     if (!registry_) return;
     if (!node_) {
         copyText(nodeName_, sizeof nodeName_, "home");
-        copyText(nodeFolder_, sizeof nodeFolder_, "sites/home");
+        copyText(nodeFolder_, sizeof nodeFolder_, defaultSiteFolder());
         ensureSampleSite(fs::path(nodeFolder_));
         startNode();
     }
@@ -297,7 +357,7 @@ void App::quickStart() {
 
 void App::saveDownload() {
     std::error_code error;
-    fs::path directory = fs::absolute("downloads", error);
+    fs::path directory = fs::absolute(dataDir_ / "downloads", error);
     fs::create_directories(directory, error);
     fs::path target = directory / downloadName(currentUrl_);
     std::ofstream file(target, std::ios::binary);
@@ -310,11 +370,13 @@ void App::saveDownload() {
 }
 
 void App::drawSidebar() {
+    touchScroll();
     float width = ImGui::GetContentRegionAvail().x;
     if (ImGui::Button("Quick start", ImVec2(width, 0))) quickStart();
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Start a local registry, host a sample site and open it");
     }
+    if (compact_) ImGui::Checkbox("Show page source", &showSource_);
     ImGui::Spacing();
 
     if (ImGui::CollapsingHeader("Registry", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -381,8 +443,12 @@ void App::drawSidebar() {
     }
 }
 
-void App::drawToolbar() {
+void App::drawToolbar(bool compact) {
     float unit = ImGui::GetFontSize();
+    if (compact) {
+        if (ImGui::Button(menuOpen_ ? "Close" : "Menu")) menuOpen_ = !menuOpen_;
+        ImGui::SameLine();
+    }
     ImGui::BeginDisabled(position_ <= 0);
     if (ImGui::Button("Back")) goBack();
     ImGui::EndDisabled();
@@ -392,17 +458,24 @@ void App::drawToolbar() {
     ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::Button("Reload")) reload();
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - unit * 9.5f);
+    if (compact) {
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - unit * 3.6f);
+    } else {
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - unit * 9.5f);
+    }
     bool submitted = ImGui::InputText("##address", address_, sizeof address_, ImGuiInputTextFlags_EnterReturnsTrue);
     ImGui::SameLine();
     if (ImGui::Button("Go")) submitted = true;
-    ImGui::SameLine();
-    ImGui::Checkbox("Source", &showSource_);
+    if (!compact) {
+        ImGui::SameLine();
+        ImGui::Checkbox("Source", &showSource_);
+    }
     if (submitted) navigate(address_);
 }
 
 void App::drawPage() {
+    touchScroll();
     if (loading_) {
         ImGui::TextColored(kDimColor, "Loading %s ...", currentUrl_.c_str());
         return;
@@ -528,11 +601,11 @@ void App::drawWords(const Block& block, float scale) {
                 if (ImGui::IsItemHovered()) {
                     ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
                     hoveredLink_ = target;
-                    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) clickedLink_ = target;
-                    ImVec2 min = ImGui::GetItemRectMin();
-                    ImVec2 max = ImGui::GetItemRectMax();
-                    ImGui::GetWindowDrawList()->AddLine(ImVec2(min.x, max.y), max, ImGui::GetColorU32(kLinkColor));
+                    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) pressedLink_ = target;
                 }
+                ImVec2 min = ImGui::GetItemRectMin();
+                ImVec2 max = ImGui::GetItemRectMax();
+                ImGui::GetWindowDrawList()->AddLine(ImVec2(min.x, max.y), max, ImGui::GetColorU32(kLinkColor));
             }
             first = false;
             start = end + 1;

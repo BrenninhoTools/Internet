@@ -1,0 +1,57 @@
+plugins {
+    id 'com.android.application'
+}
+
+def sdlDir = file(project.hasProperty('sdlDir') ? project.property('sdlDir') : "${rootDir}/SDL")
+if (!new File(sdlDir, 'android-project').exists()) {
+    throw new GradleException("SDL sources not found in ${sdlDir}. Run: git clone --depth 1 --branch release-3.2.30 https://github.com/libsdl-org/SDL.git android/SDL")
+}
+
+def internetAbis = project.hasProperty('internetAbis') ? project.property('internetAbis').split(',').toList() : ['arm64-v8a', 'armeabi-v7a', 'x86_64']
+
+android {
+    namespace 'com.internet.app'
+    compileSdk 34
+
+    if (project.hasProperty('internetNdk')) {
+        ndkVersion project.property('internetNdk')
+    }
+
+    defaultConfig {
+        applicationId 'com.internet.app'
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName '1.0.0'
+
+        ndk {
+            abiFilters.addAll(internetAbis)
+        }
+
+        externalNativeBuild {
+            cmake {
+                arguments '-DINTERNET_BUILD_APP=ON',
+                        '-DINTERNET_APP_BACKEND=SDL',
+                        "-DINTERNET_SDL_DIR=${sdlDir.absolutePath.replace('\\', '/')}"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file('../../CMakeLists.txt')
+        }
+    }
+
+    sourceSets {
+        main {
+            java.srcDirs = ['src/main/java', "${sdlDir}/android-project/app/src/main/java"]
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+}

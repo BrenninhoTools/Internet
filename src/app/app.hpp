@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -37,14 +38,19 @@ struct NodeListResult {
 
 class App {
 public:
-    App();
+    explicit App(std::filesystem::path dataDirectory = ".");
     ~App();
 
     void draw();
+    void setInsets(float left, float top, float right, float bottom);
+    void setTouchMode(bool enabled);
+    bool back();
 
 private:
     void drawSidebar();
-    void drawToolbar();
+    void drawToolbar(bool compact);
+    void touchScroll();
+    std::string defaultSiteFolder() const;
     void drawPage();
     void drawStatusBar();
     void drawDocument();
@@ -72,6 +78,11 @@ private:
     int nodePort_ = 0;
     char address_[512];
     bool showSource_ = false;
+    bool compact_ = false;
+    bool menuOpen_ = false;
+    bool touch_ = false;
+    float insets_[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    std::filesystem::path dataDir_;
 
     std::unique_ptr<Registry> registry_;
     std::unique_ptr<Node> node_;
@@ -86,6 +97,7 @@ private:
     std::string body_;
     Document document_;
     bool binary_ = false;
+    bool preformatted_ = false;
 
     std::shared_ptr<Job<PageResult>> pageJob_;
     std::shared_ptr<Job<NodeListResult>> nodesJob_;
@@ -95,6 +107,7 @@ private:
 
     std::string hoveredLink_;
     std::string clickedLink_;
+    std::string pressedLink_;
     std::string status_;
     std::string pendingNavigation_;
 };

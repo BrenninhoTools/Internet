@@ -49,6 +49,15 @@ void closeNative(std::intptr_t handle) { ::close(static_cast<NativeSocket>(handl
 
 NativeSocket native(std::intptr_t handle) { return static_cast<NativeSocket>(handle); }
 
+void suppressSigpipe(NativeSocket fd) {
+#ifdef SO_NOSIGPIPE
+    int enabled = 1;
+    ::setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof enabled);
+#else
+    (void)fd;
+#endif
+}
+
 long sendRaw(std::intptr_t handle, const char* data, std::size_t size) {
 #ifdef MSG_NOSIGNAL
     const int flags = MSG_NOSIGNAL;
@@ -94,6 +103,7 @@ Socket Socket::listen(std::uint16_t port) {
     NativeSocket fd = ::socket(AF_INET, SOCK_STREAM, 0);
     Socket socket(static_cast<std::intptr_t>(fd));
     if (!socket.valid()) throw std::runtime_error("cannot create socket");
+    suppressSigpipe(fd);
 
     int reuse = 1;
     ::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&reuse), sizeof reuse);
@@ -120,6 +130,7 @@ Socket Socket::connect(const std::string& host, std::uint16_t port) {
         NativeSocket fd = ::socket(item->ai_family, item->ai_socktype, item->ai_protocol);
         Socket candidate(static_cast<std::intptr_t>(fd));
         if (!candidate.valid()) continue;
+        suppressSigpipe(fd);
         if (::connect(fd, item->ai_addr, static_cast<SockLen>(item->ai_addrlen)) == 0) {
             socket = std::move(candidate);
             break;
@@ -135,6 +146,7 @@ Socket Socket::accept(std::string& peer) {
     NativeSocket fd = ::accept(native(handle_), reinterpret_cast<sockaddr*>(&address), &length);
     Socket client(static_cast<std::intptr_t>(fd));
     if (client.valid()) {
+        suppressSigpipe(fd);
         char text[INET_ADDRSTRLEN] = {};
         ::inet_ntop(AF_INET, &address.sin_addr, text, sizeof text);
         peer = text;
