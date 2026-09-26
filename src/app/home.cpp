@@ -112,6 +112,10 @@ void App::drawHome() {
     drawActions(width);
     ImGui::PopStyleVar();
 
+    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, smoothStep((age - 0.45f) / 0.5f));
+    drawBrowserPanel(width);
+    ImGui::PopStyleVar();
+
     ImGui::PushStyleVar(ImGuiStyleVar_Alpha, smoothStep((age - 0.5f) / 0.5f));
     drawNodeCards(width);
     ImGui::PopStyleVar();

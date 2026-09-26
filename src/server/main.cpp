@@ -126,6 +126,9 @@ internet::ServerConfig loadConfig(const fs::path& directory, std::function<void(
     config.token = stringValue(values, "token", "");
     config.rescanSeconds = intValue(values, "rescan_seconds", 300);
     config.scanOnStart = boolValue(values, "scan_on_start", true);
+    config.gatewayPort = intValue(values, "gateway_port", 8080);
+    config.gatewayLocalOnly = boolValue(values, "gateway_local_only", true);
+    config.gatewayScripts = boolValue(values, "gateway_scripts", false);
     config.firewall.ratePerSecond = doubleValue(values, "rate_limit", 25.0);
     config.firewall.burst = doubleValue(values, "burst", 60.0);
     config.firewall.maxConnectionsPerHost = intValue(values, "max_connections", 64);
@@ -155,6 +158,9 @@ int init(const fs::path& directory) {
                "ban_seconds=300\n"
                "rescan_seconds=300\n"
                "scan_on_start=true\n"
+               "gateway_port=8080\n"
+               "gateway_local_only=true\n"
+               "gateway_scripts=false\n"
                "firewall=true\n";
     }
     std::string problem;
@@ -190,6 +196,7 @@ int run(const fs::path& directory) {
     log("Internet server started. Registry " + internet::formatEndpoint(server.registryEndpoint()) + ", definitions " +
         server.security().definitionsVersion() + ", " + std::to_string(server.security().ruleCount()) + " rules");
     log("API token is in " + (config.dataDir / "token.txt").string());
+    if (server.gatewayPort() != 0) log("Open the sites in Chrome or any browser at http://localhost:" + std::to_string(server.gatewayPort()) + "/");
 
     std::signal(SIGINT, onSignal);
     std::signal(SIGTERM, onSignal);

@@ -111,6 +111,7 @@ App::~App() {
     if (scan_) scan_->cancel = true;
     if (scanThread_.joinable()) scanThread_.join();
     saveState();
+    gateway_.reset();
     node_.reset();
     registry_.reset();
 }
@@ -419,6 +420,7 @@ void App::draw() {
     if (settings_.animations || splash_) particles_.update(dt_);
     pollJobs();
     pollSecurity();
+    pollBrowser();
     hoveredLink_.clear();
     clickedLink_.clear();
     if (!splash_) handleShortcuts();

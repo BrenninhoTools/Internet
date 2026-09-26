@@ -16,6 +16,7 @@ struct Settings {
     bool intro = true;
     bool animations = true;
     float zoom = 1.0f;
+    bool browserScripts = false;
 };
 
 std::filesystem::path userDataDirectory();

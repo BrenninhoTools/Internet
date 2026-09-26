@@ -17,8 +17,10 @@
 #include <io.h>
 #endif
 
+#include "browser.hpp"
 #include "client.hpp"
 #include "firewall.hpp"
+#include "gateway.hpp"
 #include "node.hpp"
 #include "protocol.hpp"
 #include "registry.hpp"
@@ -45,6 +47,9 @@ struct Options {
     bool json = false;
     bool quarantine = false;
     bool noGuard = false;
+    bool allowScripts = false;
+    bool lan = false;
+    bool open = false;
 };
 
 Options parseOptions(const std::vector<std::string>& args, std::size_t start) {
@@ -69,6 +74,12 @@ Options parseOptions(const std::vector<std::string>& args, std::size_t start) {
             options.json = true;
         } else if (arg == "--quarantine") {
             options.quarantine = true;
+        } else if (arg == "--allow-scripts") {
+            options.allowScripts = true;
+        } else if (arg == "--lan") {
+            options.lan = true;
+        } else if (arg == "--open") {
+            options.open = true;
         } else if (arg == "--no-guard") {
             options.noGuard = true;
         } else if (arg.rfind("--", 0) == 0) {
@@ -86,6 +97,8 @@ int usage() {
                  "  internet serve <name> <directory> [--port N] [--registry host:port] [--no-guard]\n"
                  "  internet get <internet://name/path> [--registry host:port] [--out file]\n"
                  "  internet list [--registry host:port]\n"
+                 "  internet gateway [--port N] [--registry host:port] [--allow-scripts] [--lan] [--no-guard] [--open]\n"
+                 "  internet link register|unregister|status\n"
                  "  internet api <METHOD> <path> [--token T] [--out file] [--registry host:port]   (body is read from stdin for PUT and POST)\n"
                  "  internet av scan <file-or-folder> [--quarantine] [--json]\n"
                  "  internet av info\n"
@@ -129,6 +142,51 @@ int runServe(const Options& options) {
     waitForInterrupt();
     node.stop();
     return 0;
+}
+
+int runGateway(const Options& options) {
+    internet::Firewall firewall;
+    internet::Security security(securityDirectory(options));
+    internet::Gateway gateway;
+    gateway.setRegistry(options.registry);
+    gateway.setFirewall(&firewall);
+    if (!options.noGuard) gateway.setSecurity(&security);
+    gateway.setAllowScripts(options.allowScripts);
+    gateway.setLoopbackOnly(!options.lan);
+    gateway.setLog([](const std::string& text) { std::cout << text << std::endl; });
+    gateway.start(options.portGiven ? options.port : 8080);
+    if (options.open) internet::openInChrome(gateway.indexUrl());
+    waitForInterrupt();
+    gateway.stop();
+    return 0;
+}
+
+int runLink(const Options& options) {
+    if (options.positional.size() != 1) return usage();
+    const std::string& action = options.positional[0];
+    std::string exe = internet::executablePath();
+#ifdef _WIN32
+    const char* appName = "internet-app.exe";
+#else
+    const char* appName = "internet-app";
+#endif
+    fs::path sibling = fs::path(exe).parent_path() / appName;
+    std::string target = fs::exists(sibling) ? sibling.string() : exe;
+    std::string problem;
+    if (action == "register") {
+        if (!internet::registerUrlHandler(target, problem)) throw std::runtime_error(problem);
+        std::cout << "internet:// links now open " << target << '\n';
+        return 0;
+    }
+    if (action == "unregister") {
+        std::cout << (internet::unregisterUrlHandler() ? "removed" : "nothing to remove") << '\n';
+        return 0;
+    }
+    if (action == "status") {
+        std::cout << (internet::urlHandlerRegistered(target) ? "registered" : "not registered") << '\n';
+        return 0;
+    }
+    return usage();
 }
 
 int runGet(const Options& options) {
@@ -269,6 +327,8 @@ int main(int argc, char** argv) {
         if (command == "serve") return runServe(options);
         if (command == "get") return runGet(options);
         if (command == "list") return runList(options);
+        if (command == "gateway") return runGateway(options);
+        if (command == "link") return runLink(options);
         if (command == "api") return runApi(options);
         if (command == "av") return runAv(options);
         return usage();

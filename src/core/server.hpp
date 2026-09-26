@@ -23,6 +23,7 @@ public:
     ~Server();
 
     void setFirewall(Firewall* firewall);
+    void setLoopbackOnly(bool loopbackOnly);
     void start(std::uint16_t port, ConnectionHandler handler);
     void stop();
     bool running() const;
@@ -34,6 +35,7 @@ private:
     Socket listener_;
     ConnectionHandler handler_;
     Firewall* firewall_ = nullptr;
+    bool loopbackOnly_ = false;
     std::thread thread_;
     std::atomic<bool> running_{false};
     std::uint16_t port_ = 0;

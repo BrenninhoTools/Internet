@@ -50,12 +50,14 @@ add_library(internet_core STATIC
     src/core/quarantine.cpp
     src/core/security.cpp
     src/core/json.cpp
+    src/core/gateway.cpp
+    src/core/browser.cpp
     src/core/siteserver.cpp
 )
 target_include_directories(internet_core PUBLIC src/core)
 target_link_libraries(internet_core PUBLIC Threads::Threads)
 if(WIN32)
-    target_link_libraries(internet_core PUBLIC ws2_32)
+    target_link_libraries(internet_core PUBLIC ws2_32 advapi32 shell32)
 endif()
 if(MSVC)
     target_compile_options(internet_core PRIVATE /W4 /utf-8)
@@ -78,7 +80,7 @@ if(NOT INTERNET_MOBILE)
 
     if(INTERNET_BUILD_TESTS)
         enable_testing()
-        add_executable(internet-tests tests/tests.cpp tests/security_tests.cpp tests/server_tests.cpp)
+        add_executable(internet-tests tests/tests.cpp tests/security_tests.cpp tests/server_tests.cpp tests/gateway_tests.cpp)
         target_link_libraries(internet-tests PRIVATE internet_core)
         add_test(NAME internet-tests COMMAND internet-tests)
     endif()
@@ -193,6 +195,7 @@ if(INTERNET_BUILD_APP)
         src/app/home.cpp
         src/app/editor.cpp
         src/app/securitycenter.cpp
+        src/app/browserpanel.cpp
         src/app/ui.cpp
         src/app/theme.cpp
         src/app/widgets.cpp

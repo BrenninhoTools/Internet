@@ -299,6 +299,8 @@ void App::drawSidebar() {
         }
     }
 
+    if (browserSupported() && ImGui::CollapsingHeader("Browser")) drawBrowserSidebar(width);
+
     if (ImGui::CollapsingHeader("Appearance")) drawAppearance();
 
     if (ImGui::CollapsingHeader("Shortcuts")) {
@@ -410,7 +412,7 @@ void App::drawToolbar(bool compact) {
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - unit * 3.6f);
     } else {
         ImGui::SameLine();
-        float reserve = 6.0f * (frame + spacing) + unit * 6.4f;
+        float reserve = 7.0f * (frame + spacing) + unit * 6.4f;
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - reserve);
     }
 
@@ -444,6 +446,10 @@ void App::drawToolbar(bool compact) {
             toggleBookmark();
         ImGui::SameLine();
         if (iconButton("share", Icon::Share, "Share or copy the link")) shareCurrent();
+        if (browserSupported()) {
+            ImGui::SameLine();
+            if (iconButton("chrome", Icon::External, "Open in Chrome", true, false, ImVec4(0.26f, 0.52f, 0.96f, 1.0f))) openInBrowser(browserTarget());
+        }
         ImGui::SameLine();
         if (iconButton("find", Icon::Search, "Find in page (Ctrl+F)", page && !binary_, findOpen_)) {
             findOpen_ = !findOpen_;
@@ -574,6 +580,15 @@ std::vector<PaletteItem> App::buildPaletteItems() {
             }
         });
     add("Share the current link", "Send it to someone", Icon::Share, colors.primary, [this] { shareCurrent(); });
+    if (browserSupported()) {
+        add("Open in Chrome", browserTarget().empty() ? "The gateway home page" : "This page", Icon::External, ImVec4(0.26f, 0.52f, 0.96f, 1.0f),
+            [this] { openInBrowser(browserTarget()); });
+        add("Copy the browser address", "http://name.localhost", Icon::Copy, colors.secondary, [this] { copyGatewayAddress(); });
+        if (urlHandlerSupported()) {
+            add(linksRegistered_ ? "Unregister internet:// links" : "Register internet:// links", "Let Chrome open the app", Icon::Check, colors.primary,
+                [this] { toggleLinkRegistration(); });
+        }
+    }
     add("Open the Security Center", "Ctrl+J", Icon::Shield, kSafe, [this] { openSecurity(); });
     add("Quick scan", "Site folder and downloads", Icon::Search, kSafe, [this] {
         std::vector<std::filesystem::path> roots = {std::filesystem::path(nodeFolder_)};

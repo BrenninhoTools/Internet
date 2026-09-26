@@ -99,7 +99,7 @@ Socket& Socket::operator=(Socket&& other) noexcept {
 
 Socket::~Socket() { close(); }
 
-Socket Socket::listen(std::uint16_t port) {
+Socket Socket::listen(std::uint16_t port, bool loopbackOnly) {
     NativeSocket fd = ::socket(AF_INET, SOCK_STREAM, 0);
     Socket socket(static_cast<std::intptr_t>(fd));
     if (!socket.valid()) throw std::runtime_error("cannot create socket");
@@ -110,7 +110,7 @@ Socket Socket::listen(std::uint16_t port) {
 
     sockaddr_in address{};
     address.sin_family = AF_INET;
-    address.sin_addr.s_addr = htonl(INADDR_ANY);
+    address.sin_addr.s_addr = htonl(loopbackOnly ? INADDR_LOOPBACK : INADDR_ANY);
     address.sin_port = htons(port);
     if (::bind(fd, reinterpret_cast<sockaddr*>(&address), sizeof address) != 0)
         throw std::runtime_error("cannot bind port " + std::to_string(port));

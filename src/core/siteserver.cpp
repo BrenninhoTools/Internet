@@ -117,6 +117,8 @@ Endpoint SiteServer::registryEndpoint() const {
     return config_.externalRegistry;
 }
 
+std::uint16_t SiteServer::gatewayPort() const { return gateway_ && gateway_->running() ? gateway_->port() : 0; }
+
 std::int64_t SiteServer::uptimeSeconds() const {
     if (!running_) return 0;
     return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - started_).count();
@@ -158,6 +160,22 @@ void SiteServer::start() {
     });
     api_->start(0);
 
+    if (config_.gatewayPort > 0) {
+        gateway_ = std::make_unique<Gateway>();
+        gateway_->setRegistry(registryEndpoint());
+        gateway_->setSecurity(&security_);
+        gateway_->setFirewall(&firewall_);
+        gateway_->setAllowScripts(config_.gatewayScripts);
+        gateway_->setLoopbackOnly(config_.gatewayLocalOnly);
+        gateway_->setLog([this](const std::string& text) { log("[gateway] " + text); });
+        try {
+            gateway_->start(static_cast<std::uint16_t>(config_.gatewayPort));
+        } catch (const std::exception& failure) {
+            log(std::string("Gateway disabled: ") + failure.what());
+            gateway_.reset();
+        }
+    }
+
     started_ = std::chrono::steady_clock::now();
     lastScan_ = started_;
     stopping_ = false;
@@ -179,6 +197,7 @@ void SiteServer::stop() {
         std::lock_guard<std::mutex> lock(mutex_);
         nodes_.clear();
     }
+    gateway_.reset();
     api_.reset();
     if (config_.hostRegistry) registry_.stop();
 }
@@ -327,7 +346,8 @@ Json SiteServer::status() {
         .set("threats", counters.threats)
         .set("blocked", counters.blocked)
         .set("rateLimited", stats.rateLimited)
-        .set("bans", stats.bans);
+        .set("bans", stats.bans)
+        .set("gateway", static_cast<std::uint64_t>(gatewayPort()));
 }
 
 bool SiteServer::handleApi(const Message& request, const std::string& peer, Message& reply) {

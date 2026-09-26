@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Internet</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 24px; max-width: 460px; color: #1c2340; }
+  h1 { font-size: 20px; margin: 0 0 8px; }
+  label { display: block; margin: 16px 0 6px; font-weight: 600; }
+  input { padding: 8px 10px; width: 120px; font: inherit; }
+  button { margin-left: 8px; padding: 8px 16px; font: inherit; }
+  p { color: #55607f; }
+  #state { margin-left: 10px; color: #1a7f4b; }
+</style>
+</head>
+<body>
+<h1>Internet gateway</h1>
+<p>Type <b>in</b>, press space, then a site such as <b>home/</b> in the address bar to open <b>internet://home/</b>.</p>
+<label for="port">Gateway port</label>
+<input id="port" type="number" min="1" max="65535">
+<button id="save">Save</button><span id="state"></span>
+<script src="options.js"></script>
+</body>
+</html>

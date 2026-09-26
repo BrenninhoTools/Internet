@@ -11,6 +11,7 @@ A custom Internet written in C++17 that runs on Windows, macOS, Linux, Android a
 - **`internet` command**: the same features for the terminal.
 - **`internet-server`**: a headless server that hosts every folder of a directory as a site, runs a registry and exposes a JSON API.
 - **Security**: an antivirus engine, quarantine and firewall built into the app, the command line and the server.
+- **Gateway**: lets Chrome and other browsers open `internet://` sites through a local HTTP address, with the same protection.
 
 ## Build
 
@@ -126,7 +127,7 @@ This is a compact engine written for this project. It finds what its rules and h
     internet-server scan [--dir D]
     internet-server token [--dir D]
 
-`init` creates the directory with `sites/`, `data/` and `server.conf`. `run` starts a registry, an API node and one node per folder under `sites/` (folders added or removed while it runs are picked up), scans everything on start and periodically afterwards, and logs to `data/server.log`. The API token is in `data/token.txt`.
+`init` creates the directory with `sites/`, `data/` and `server.conf`. `run` starts a registry, a browser gateway (`gateway_port`, default 8080), an API node and one node per folder under `sites/` (folders added or removed while it runs are picked up), scans everything on start and periodically afterwards, and logs to `data/server.log`. The API token is in `data/token.txt`.
 
 ## The API
 
@@ -151,12 +152,25 @@ Everything except `/v1/status` needs the token. From the terminal (the body of `
     internet api GET /v1/sites --token <token>
     internet api PUT /v1/sites/home/files/index.html --token <token> < index.html
 
+## Chrome and other browsers
+
+Chrome cannot open `internet://` on its own, so the app, the command line and the server can run a **gateway**: a small HTTP server that fetches a site from the network and hands it to the browser. A site called `shop` is opened at `http://shop.localhost:8080/`, and the gateway home page at `http://localhost:8080/` lists every site that is online and has an address box.
+
+- **Protected**: every page is scanned first. A malicious page is replaced by a block page (status `451`), a suspicious one is shown with a warning bar.
+- **Isolated**: each site has its own origin (`name.localhost`), so one site cannot read another's cookies or storage. Scripts are blocked with a Content-Security-Policy unless you allow them, and `internet://` links inside pages are rewritten to gateway links.
+- **Local only**: the gateway listens on the loopback interface and refuses requests for any other host name. `--lan` (or `gateway_local_only=false` in `server.conf`) opens it to the network.
+- **In the app**: the **Browser** panel on the home screen, the arrow button in the toolbar and the command palette (**Open in Chrome**) start the gateway on port 8080 (or a free port) and open the current page in Chrome. If Chrome is not installed the default browser is used. **Register internet:// links** makes the operating system open `internet://` links in the app, so a link clicked in Chrome asks to open Internet (Windows and Linux; on macOS the link handler is not registered by this build).
+- **From the terminal**: `internet gateway --open`, or `internet-server run`, which serves the gateway on `gateway_port` from `server.conf`.
+- **Chrome extension**: `extension/chrome` is a small Manifest V3 extension. Open `chrome://extensions`, turn on Developer mode, choose **Load unpacked** and select that folder. Then type `in`, press space and a site such as `home/` in the address bar. The toolbar button opens the gateway home page and the options page sets the gateway port.
+
 ## The command line
 
     internet registry [--port N]
     internet serve <name> <directory> [--port N] [--registry host:port] [--no-guard]
     internet get <internet://name/path> [--registry host:port] [--out file]
     internet list [--registry host:port]
+    internet gateway [--port N] [--registry host:port] [--allow-scripts] [--lan] [--no-guard] [--open]
+    internet link register|unregister|status
     internet api <METHOD> <path> [--token T] [--out file] [--registry host:port]
     internet av scan <file-or-folder> [--quarantine] [--json]
     internet av info

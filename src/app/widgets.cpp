@@ -292,6 +292,12 @@ void drawIcon(ImDrawList* list, Icon icon, ImVec2 c, float s, ImU32 color) {
             list->AddCircleFilled(offset(c, -s * 0.3f, 0), s * 0.14f, color);
             list->AddCircleFilled(offset(c, s * 0.3f, s * 0.28f), s * 0.14f, color);
             break;
+        case Icon::External:
+            list->AddRect(offset(c, -s * 0.42f, -s * 0.2f), offset(c, s * 0.18f, s * 0.4f), color, s * 0.08f, ImDrawFlags_None, thickness);
+            list->AddLine(offset(c, -s * 0.02f, s * 0.02f), offset(c, s * 0.42f, -s * 0.42f), color, thickness);
+            list->AddLine(offset(c, s * 0.1f, -s * 0.42f), offset(c, s * 0.42f, -s * 0.42f), color, thickness);
+            list->AddLine(offset(c, s * 0.42f, -s * 0.42f), offset(c, s * 0.42f, -s * 0.1f), color, thickness);
+            break;
         case Icon::Eye:
             drawEllipse(list, c, s * 0.46f, s * 0.26f, color, thickness);
             list->AddCircleFilled(c, s * 0.13f, color);

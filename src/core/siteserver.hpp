@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "firewall.hpp"
+#include "gateway.hpp"
 #include "json.hpp"
 #include "node.hpp"
 #include "protocol.hpp"
@@ -31,6 +32,9 @@ struct ServerConfig {
     std::string token;
     FirewallConfig firewall;
     int rescanSeconds = 300;
+    int gatewayPort = 8080;
+    bool gatewayLocalOnly = true;
+    bool gatewayScripts = false;
     bool scanOnStart = true;
     std::function<void(const std::string&)> log;
 };
@@ -59,6 +63,7 @@ public:
     Firewall& firewall();
     Registry& registry();
     Endpoint registryEndpoint() const;
+    std::uint16_t gatewayPort() const;
     std::int64_t uptimeSeconds() const;
 
     std::vector<SiteInfo> sites();
@@ -85,6 +90,7 @@ private:
     std::mutex mutex_;
     std::map<std::string, std::unique_ptr<Node>> nodes_;
     std::unique_ptr<Node> api_;
+    std::unique_ptr<Gateway> gateway_;
     std::thread thread_;
     std::mutex wakeMutex_;
     std::condition_variable wake_;

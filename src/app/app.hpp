@@ -12,8 +12,10 @@
 #include <vector>
 
 #include "av.hpp"
+#include "browser.hpp"
 #include "client.hpp"
 #include "firewall.hpp"
+#include "gateway.hpp"
 #include "imgui.h"
 #include "markup.hpp"
 #include "node.hpp"
@@ -171,6 +173,15 @@ private:
     void drawLoading();
     void drawBlocked();
     void drawThreatBanner();
+
+    void drawBrowserPanel(float width);
+    void drawBrowserSidebar(float width);
+    bool ensureGateway();
+    void openInBrowser(const std::string& internetUrl);
+    std::string browserTarget() const;
+    void toggleLinkRegistration();
+    void pollBrowser();
+    void copyGatewayAddress();
 
     void drawHome();
     void drawHero(float width, bool compact);
@@ -335,6 +346,11 @@ private:
     std::mutex firewallMutex_;
 
     std::unique_ptr<Registry> registry_;
+    std::unique_ptr<Gateway> gateway_;
+    std::string chromePath_;
+    bool chromeChecked_ = false;
+    bool linksRegistered_ = false;
+    double browserPolled_ = -100.0;
     std::unique_ptr<Node> node_;
 
     std::vector<std::string> history_;

@@ -16,7 +16,7 @@ public:
     Socket& operator=(const Socket&) = delete;
     ~Socket();
 
-    static Socket listen(std::uint16_t port);
+    static Socket listen(std::uint16_t port, bool loopbackOnly = false);
     static Socket connect(const std::string& host, std::uint16_t port);
 
     Socket accept(std::string& peer);

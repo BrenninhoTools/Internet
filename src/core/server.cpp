@@ -17,9 +17,11 @@ Server::~Server() { stop(); }
 
 void Server::setFirewall(Firewall* firewall) { firewall_ = firewall; }
 
+void Server::setLoopbackOnly(bool loopbackOnly) { loopbackOnly_ = loopbackOnly; }
+
 void Server::start(std::uint16_t port, ConnectionHandler handler) {
     if (running_) throw std::logic_error("server already running");
-    Socket listener = Socket::listen(port);
+    Socket listener = Socket::listen(port, loopbackOnly_);
     port_ = listener.port();
     listener_ = std::move(listener);
     handler_ = std::move(handler);
