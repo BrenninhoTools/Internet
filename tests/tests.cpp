@@ -221,6 +221,7 @@ void testSiteFiles() {
 int runSecurityTests();
 int runServerTests();
 int runGatewayTests();
+int runGoTests();
 
 int main() {
     testUrls();
@@ -231,6 +232,7 @@ int main() {
     failures += runSecurityTests();
     failures += runServerTests();
     failures += runGatewayTests();
+    failures += runGoTests();
     if (failures == 0) std::cout << "all tests passed\n";
     return failures == 0 ? 0 : 1;
 }

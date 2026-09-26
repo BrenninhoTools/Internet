@@ -104,7 +104,7 @@ std::vector<SiteFile> listSiteFiles(const fs::path& root) {
     for (; !error && it != end && files.size() < kMaxEntries; it.increment(error)) {
         std::error_code entryError;
         SiteFile file;
-        file.path = it->path().lexically_relative(base).generic_string();
+        file.path = it->path().lexically_relative(base).generic_u8string();
         file.directory = it->is_directory(entryError);
         if (!file.directory) file.size = it->file_size(entryError);
         if (!file.path.empty()) files.push_back(std::move(file));

@@ -39,6 +39,12 @@ bool parseScope(const std::string& text, std::uint32_t& scope) {
             scope |= kScopeScript;
         } else if (item == "shell") {
             scope |= kScopeShell;
+        } else if (item == "gotiny") {
+            scope |= kScopeGoTiny;
+        } else if (item == "gobin") {
+            scope |= kScopeGoBin;
+        } else if (item == "go") {
+            scope |= kScopeGo;
         } else if (item == "pexe") {
             scope |= kScopePeExe;
         } else if (item == "pe") {
@@ -160,6 +166,15 @@ bool parseDefinitions(const std::string& text, Definitions& out, std::string& er
                 current.description = value;
             } else {
                 current.description = rest;
+            }
+        } else if (keyword == "window") {
+            if (!inRule) return fail("window outside a rule");
+            if (rest == "any") {
+                current.window = ~static_cast<std::uint64_t>(0);
+            } else {
+                long long value = std::atoll(rest.c_str());
+                if (value < 1) return fail("invalid window");
+                current.window = static_cast<std::uint64_t>(value);
             }
         } else if (keyword == "end") {
             if (!inRule) return fail("end outside a rule");

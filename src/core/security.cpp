@@ -205,18 +205,18 @@ ScanResult Security::scanFile(const fs::path& path, const std::string& source) {
     std::uint64_t size = 0;
     if (!readWhole(path, options.maxBytes, data, size)) {
         ScanResult result;
-        result.name = path.filename().string();
+        result.name = path.filename().u8string();
         result.verdict = Verdict::Unscannable;
         result.note = "The file could not be read";
         return result;
     }
-    ScanResult result = scanner->scan(path.filename().string(), data, options);
+    ScanResult result = scanner->scan(path.filename().u8string(), data, options);
     if (size > data.size()) {
         result.truncated = true;
         result.size = size;
         result.note = "Only the first part of the file was scanned";
     }
-    record(source, path.string(), result, result.verdict == Verdict::Clean ? "" : "detected");
+    record(source, path.u8string(), result, result.verdict == Verdict::Clean ? "" : "detected");
     return result;
 }
 
@@ -228,7 +228,7 @@ bool Security::quarantineFile(const fs::path& path, const ScanResult& result, st
         return false;
     }
     QuarantineItem item;
-    if (!quarantine_.add(path.string(), data, result, item, error)) return false;
+    if (!quarantine_.add(path.u8string(), data, result, item, error)) return false;
     std::error_code code;
     fs::remove(path, code);
     if (code) {
@@ -263,7 +263,7 @@ void Security::scanTree(const std::vector<fs::path>& roots, const std::string& s
             for (; !error && it != end; it.increment(error)) {
                 std::error_code entryError;
                 if (!it->is_regular_file(entryError)) continue;
-                if (it->path().lexically_normal().generic_string().rfind(quarantineDir.lexically_normal().generic_string(), 0) == 0) continue;
+                if (it->path().lexically_normal().generic_u8string().rfind(quarantineDir.lexically_normal().generic_u8string(), 0) == 0) continue;
                 files.push_back(it->path());
                 if (files.size() >= 200000) break;
             }
@@ -272,14 +272,14 @@ void Security::scanTree(const std::vector<fs::path>& roots, const std::string& s
             if (progress.cancel) break;
             {
                 std::lock_guard<std::mutex> lock(progress.mutex);
-                progress.current = file.string();
+                progress.current = file.u8string();
             }
             ScanResult result = scanFile(file, source);
             ++progress.files;
             progress.bytes += result.size;
             if (result.verdict == Verdict::Clean) continue;
             ScanRecord entry;
-            entry.path = file.string();
+            entry.path = file.u8string();
             entry.action = "reported";
             if (result.verdict == Verdict::Malicious) {
                 ++progress.malicious;
@@ -309,7 +309,7 @@ void Security::scanTree(const std::vector<fs::path>& roots, const std::string& s
 GuardDecision Security::guard(const fs::path& path) {
     SecuritySettings current = settings();
     if (!current.guardHosting) return GuardDecision{};
-    std::string key = path.generic_string();
+    std::string key = path.generic_u8string();
     std::int64_t modified = modifiedSeconds(path);
     std::error_code error;
     std::uint64_t size = fs::file_size(path, error);
@@ -328,7 +328,7 @@ GuardDecision Security::guard(const fs::path& path) {
         const Finding* strongest = strongestFinding(result);
         entry.allowed = false;
         entry.reason = strongest ? strongest->rule + ": " + strongest->description : "Malicious file";
-        noteBlocked("hosting", path.string(), entry.reason);
+        noteBlocked("hosting", path.u8string(), entry.reason);
     }
     {
         std::lock_guard<std::mutex> lock(mutex_);

@@ -182,8 +182,10 @@ void testScanner() {
     check(engine->scan("page.html", std::string("<html><iframe src=\"http://a\" width=\"400\"></iframe></html>")).verdict == internet::Verdict::Clean,
           "visible iframe is clean");
 
-    std::string miner = "<script src=\"https://coin" + std::string("hive.example/lib.js\"></script>");
+    std::string miner = "<script src=\"https://coin" + std::string("hive.com/lib/coin") + "hive.min.js\"></script><script>var m = new Coin" + "Hive.Anonymous('KEY'); m.start();</script>";
     check(engine->scan("m.html", miner).verdict == internet::Verdict::Malicious, "miner is malicious");
+    check(engine->scan("blocklist.json", "{\"domains\":[\"coin" + std::string("hive.com\",\"coin-") + "hive.com\",\"minero.cc\",\"authedmine.com\"]}").verdict == internet::Verdict::Clean,
+          "a list of miner domains is not a miner");
 
     std::string webshell = "<?php " + std::string("ev") + "al($_PO" + "ST['x']); ?>";
     check(engine->scan("shell.php", webshell).verdict == internet::Verdict::Malicious, "webshell is malicious");
@@ -202,6 +204,9 @@ void testScanner() {
               disguised.verdict == internet::Verdict::Suspicious,
           "program disguised as a picture is suspicious");
     check(engine->scan("tool.exe", pe).verdict == internet::Verdict::Clean, "plain small program is clean");
+    check(engine->scan("Windows.Data.Pdf.dll", pe).verdict == internet::Verdict::Clean, "a library with a document word in its name is clean");
+    check(engine->scan("invoice.pdf.exe", pe).verdict == internet::Verdict::Suspicious, "a program with a document extension in front is suspicious");
+    check(engine->scan("codec.acm", pe).verdict == internet::Verdict::Clean && engine->scan("shell.rs", pe).verdict == internet::Verdict::Clean, "system files with unusual extensions are clean");
 
     std::vector<std::uint8_t> inner = internet::buildZip({{"readme.txt", bytes("hello")}, {"deep/bad.txt", bytes("x " + marker())}}, true);
     internet::ScanResult zipResult = engine->scan("bundle.zip", inner.data(), inner.size());

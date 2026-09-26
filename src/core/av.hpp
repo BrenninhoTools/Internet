@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "definitions.hpp"
@@ -27,12 +28,14 @@ struct ScanResult {
     std::string sha256;
     std::string type;
     std::string note;
+    std::string language;
     std::uint64_t size = 0;
     Verdict verdict = Verdict::Clean;
     int score = 0;
     double entropy = 0.0;
     bool truncated = false;
     std::vector<Finding> findings;
+    std::vector<std::pair<std::string, std::uint64_t>> textSizes;
 };
 
 struct ScanOptions {

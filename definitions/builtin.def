@@ -1,4 +1,4 @@
-version 2026.09.24
+version 2026.09.27
 
 hash 275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f EICAR-Test-File 100 Test
 
@@ -49,14 +49,17 @@ end
 
 rule Script.CryptoMiner 85 Miner any any
 desc "Cryptocurrency miner"
-i "coinhive"
-i "coin-hive"
-i "cryptonight"
+i "new coinhive."
+i "coinhive.min.js"
+i "coinhive.com/lib"
+i "coin-hive.com/lib"
+i "cryptonight-wasm"
+i "\"algo\":\"cryptonight"
 i "stratum+tcp://"
 i "stratum+ssl://"
-i "minero.cc"
-i "webminepool"
-i "authedmine"
+i "minero.cc/lib"
+i "webminepool.com/lib"
+i "authedmine.com/lib"
 end
 
 rule Script.CookieExfil 35 Stealer html,script any
@@ -89,7 +92,7 @@ i ".ps1\""
 i ".bat\""
 end
 
-rule Script.WScriptShell 75 Trojan script,shell,html,text any
+rule Script.WScriptShell 45 Suspicious script,shell,html,text any
 desc "Script launches programs through the Windows scripting host"
 I "wscript.shell"
 i ".run("
@@ -130,8 +133,29 @@ end
 
 rule Script.PowerShell.WebRequestExec 65 Downloader shell,text,html any
 desc "PowerShell fetches a page and evaluates it"
-I "invoke-expression"
-I "invoke-webrequest"
+i "invoke-expression (invoke-webrequest"
+i "invoke-expression(invoke-webrequest"
+i "invoke-expression (iwr"
+i "invoke-expression(iwr"
+i "invoke-expression (invoke-restmethod"
+i "invoke-expression (irm"
+i "iex (invoke-webrequest"
+i "iex(invoke-webrequest"
+i "iex (iwr"
+i "iex(iwr"
+i "iex (irm"
+i "iex(irm"
+i "iex (invoke-restmethod"
+end
+
+rule Script.PowerShell.PipeToIex 60 Downloader shell,text,html 1
+desc "PowerShell runs whatever it downloads"
+I "| iex"
+i "iwr "
+i "irm "
+i "invoke-webrequest"
+i "invoke-restmethod"
+i "downloadstring"
 end
 
 rule Script.PowerShell.HiddenBypass 40 Trojan shell,text,html 2
@@ -151,10 +175,11 @@ i "amsiinitfailed"
 end
 
 rule Script.PowerShell.ReflectionLoad 55 Trojan shell,text,html any
-desc "Loads a program directly into memory"
+desc "Decodes a program and loads it directly into memory"
+I "frombase64string("
 i "[reflection.assembly]::load("
 i "[system.reflection.assembly]::load("
-i "frombase64string("
+i "assembly]::load(["
 end
 
 rule Script.LOLBin.Certutil 78 Downloader shell,text,html any
@@ -277,21 +302,21 @@ s "TVpQAAIAAAAEAA8A"
 s "TVqAAAEAAAAEAAAA"
 end
 
-rule Exploit.ProcessInjection 72 Trojan pexe,other,elf any
+rule Exploit.ProcessInjection 72 Trojan pexe,elf any
 desc "Program that can inject code into other processes"
 S "VirtualAllocEx"
 S "WriteProcessMemory"
 S "CreateRemoteThread"
 end
 
-rule Trojan.KeyloggerApi 35 Stealer pexe,other any
+rule Trojan.KeyloggerApi 35 Stealer pexe any
 desc "Program that listens to the keyboard"
 S "SetWindowsHookEx"
 s "GetAsyncKeyState"
 s "GetKeyboardState"
 end
 
-rule Downloader.UrlDownload 35 Downloader pexe,other any
+rule Downloader.UrlDownload 35 Downloader pexe any
 desc "Program that downloads and starts files"
 S "URLDownloadToFile"
 s "ShellExecute"
@@ -299,7 +324,7 @@ s "WinExec"
 s "CreateProcess"
 end
 
-rule Ransomware.CryptoFileScan 45 Ransomware pexe,other any
+rule Ransomware.CryptoFileScan 45 Ransomware pexe any
 desc "Program that encrypts files while walking through folders"
 S "CryptEncrypt"
 S "FindFirstFile"
@@ -308,7 +333,7 @@ s "CryptGenKey"
 s "CryptImportKey"
 end
 
-rule Evasion.DebuggerChecks 35 Suspicious pexe,other 3
+rule Evasion.DebuggerChecks 35 Suspicious pexe 3
 desc "Program that checks whether it is being analysed"
 s "IsDebuggerPresent"
 s "CheckRemoteDebuggerPresent"
@@ -316,7 +341,7 @@ s "NtQueryInformationProcess"
 s "OutputDebugString"
 end
 
-rule Evasion.VirtualMachine 45 Suspicious pe,other 2
+rule Evasion.VirtualMachine 45 Suspicious pe 2
 desc "Program that looks for virtual machines and analysis tools"
 i "vboxservice.exe"
 i "vmtoolsd.exe"
@@ -348,4 +373,300 @@ w "login data"
 w "cookies.sqlite"
 w "logins.json"
 w "wallet.dat"
+end
+
+rule Go.Src.ReverseShell 90 Backdoor go any
+desc "Go source that connects out and hands the other side a shell"
+S "net.Dial"
+S "exec.Command"
+s "/bin/sh"
+s "/bin/bash"
+s "cmd.exe"
+i "powershell"
+end
+
+rule Go.Src.TlsReverseShell 90 Backdoor go any
+desc "Go source that opens an encrypted connection and hands the other side a shell"
+S "tls.Dial"
+S "exec.Command"
+s "/bin/sh"
+s "/bin/bash"
+s "cmd.exe"
+i "powershell"
+end
+
+rule Go.Loader.Shellcode 88 Trojan go,gobin any
+desc "Go program that copies machine code into memory and runs it"
+window any
+I "kernel32"
+S "RtlMoveMemory"
+s "VirtualAlloc"
+s "CreateThread"
+s "VirtualProtect"
+s "WriteProcessMemory"
+s "CreateRemoteThread"
+s "QueueUserAPC"
+s "NtCreateThreadEx"
+s "EnumSystemLocales"
+end
+
+rule Go.Bin.ReverseShell 55 Backdoor gotiny any
+desc "Small Go program with everything needed for a remote shell"
+window any
+S "net.Dial"
+S "exec.Command"
+s "/bin/sh"
+s "/bin/bash"
+s "cmd.exe"
+i "powershell"
+end
+
+rule Go.Loader.Syscall 85 Trojan go any
+desc "Go source that runs machine code through raw system calls"
+S "unsafe.Pointer"
+S "syscall.Syscall"
+s "0xfc, 0x48"
+s "0xfc,0x48"
+s "\\xfc\\x48"
+s "0xfc, 0xe8"
+s "0x48, 0x31, 0xc9"
+end
+
+rule Exploit.Shellcode.Metasploit 85 Exploit any any
+desc "Standard shellcode start used by attack frameworks"
+i "0xfc, 0x48, 0x83, 0xe4, 0xf0"
+i "0xfc,0x48,0x83,0xe4,0xf0"
+i "\\xfc\\x48\\x83\\xe4\\xf0"
+i "\\xfc\\xe8\\x82\\x00\\x00\\x00"
+x fc4883e4f0e8
+x fce8820000006089e5
+end
+
+rule Go.Evasion.AmsiEtwPatch 88 Trojan go,gobin any
+desc "Go program that switches off Windows scanning and event logging"
+window any
+S "AmsiScanBuffer"
+s "EtwEventWrite"
+s "NtTraceEvent"
+s "VirtualProtect"
+s "WriteProcessMemory"
+s "NtProtectVirtualMemory"
+end
+
+rule Exploit.ProcessHollowing 35 Trojan pexe,go,gobin any
+desc "Program that can swap the code of another running program"
+window any
+S "SetThreadContext"
+S "WriteProcessMemory"
+S "ResumeThread"
+s "NtUnmapViewOfSection"
+s "ZwUnmapViewOfSection"
+end
+
+rule Go.Ransomware.Walker 40 Ransomware go,gobin any
+desc "Go program that walks every folder, encrypts and deletes files"
+window any
+S "filepath.Walk"
+S "os.Remove"
+s "aes.NewCipher"
+s "chacha20"
+s "rsa.EncryptOAEP"
+s "cipher.NewGCM"
+s "cipher.NewCTR"
+s "cipher.NewCFBEncrypter"
+end
+
+rule Go.Ransomware.Extensions 82 Ransomware go,gobin 3
+desc "Go program that encrypts files and leaves a ransom message"
+window any
+S "filepath.Walk"
+S "aes.NewCipher"
+i ".locked"
+i ".encrypted"
+i "your files are"
+i "your files have been"
+i "decrypt your"
+i "to decrypt"
+i "bitcoin"
+i "ransom"
+end
+
+rule Go.Downloader.Exec 60 Downloader go any
+desc "Go source that downloads a file and runs it"
+S "http.Get"
+S "exec.Command"
+s "os.Create"
+s "os.WriteFile"
+s "ioutil.WriteFile"
+s "os.Chmod"
+end
+
+rule Go.Keylogger 72 Stealer go,gobin any
+desc "Go program that records what is typed"
+window any
+I "GetAsyncKeyState"
+s "user32"
+s "SetWindowsHookEx"
+s "GetForegroundWindow"
+end
+
+rule Go.Clipper 72 Stealer go,gobin any
+desc "Go program that swaps copied wallet addresses"
+window any
+S "clipboard.ReadAll"
+S "clipboard.WriteAll"
+i "bc1q"
+i "bc1p"
+i "{25,34}"
+i "T[A-Za-z1-9]{33}"
+i "monero"
+i "ethereum"
+end
+
+rule Go.Spyware.Screenshot 50 Stealer go,gobin any
+desc "Go program that takes screenshots and sends them out"
+window any
+S "kbinani/screenshot"
+S "net/http"
+end
+
+rule Go.Persistence 45 Trojan go 2
+desc "Go source that arranges to start again after a reboot"
+i "currentversion\\run"
+i "currentversion\\\\run"
+i "schtasks"
+i "/etc/cron"
+i "systemd/system"
+i ".bashrc"
+i "launchagents"
+i "crontab"
+end
+
+rule Go.Toolkit.Offensive 80 Hacktool go,gobin,pe,elf any
+desc "Go program built from an attack framework"
+window any
+i "github.com/bishopfox/sliver"
+i "github.com/ne0nd0g/merlin"
+i "github.com/ne0nd0g/go-clr"
+i "github.com/binject/go-donut"
+i "github.com/c-sto/bananaphone"
+i "github.com/timwhitez/doge-gabh"
+i "github.com/kgretzky/evilginx2"
+i "github.com/egebalci/sgn"
+i "github.com/mythicagents/"
+i "github.com/optiv/scarecrow"
+i "github.com/moond4rk/hackbrowserdata"
+i "github.com/nicocha30/ligolo-ng"
+end
+
+rule Go.Src.GenerateDownload 55 Downloader go any
+desc "Go source that downloads and runs something when code is generated"
+S "//go:generate"
+i "curl "
+i "wget "
+i "powershell"
+i "| sh"
+i "|sh"
+i "bash -c"
+i "sh -c"
+i "invoke-webrequest"
+end
+
+rule Go.Src.EmbedPayload 40 Suspicious go any
+desc "Go source that packs a program or shellcode inside itself"
+S "//go:embed"
+i ".exe"
+i ".dll"
+i ".bin"
+i "payload"
+i "shellcode"
+i "implant"
+end
+
+rule Go.Src.EmbedAndRun 65 Trojan go any
+desc "Go source that unpacks an embedded file and runs it"
+S "//go:embed"
+S "exec.Command"
+s "os.WriteFile"
+s "ioutil.WriteFile"
+s "os.Create"
+end
+
+rule Exfil.Webhook 35 Stealer any any
+desc "Sends data to a chat webhook or bot, a common way to steal data"
+i "discord.com/api/webhooks/"
+i "discordapp.com/api/webhooks/"
+i "api.telegram.org/bot"
+end
+
+rule Elf.Persistence 40 Trojan elf,other 3
+desc "Program that installs itself to start on boot"
+s "/etc/cron"
+s "/etc/init.d/"
+s "/etc/rc.local"
+s "/etc/systemd/system"
+s "/.bashrc"
+s "crontab"
+end
+
+rule Elf.Rootkit.LdPreload 70 Backdoor elf,other,shell,text any
+desc "Program that hooks every other program through the preload file"
+s "/etc/ld.so.preload"
+end
+
+rule Elf.AntiDebug 35 Suspicious elf,gobin 2
+desc "Program that checks whether it is being debugged"
+s "TracerPid"
+s "/proc/self/status"
+s "PTRACE_TRACEME"
+end
+
+rule Botnet.Mirai 88 Backdoor elf,other any
+desc "Internet of things botnet"
+S "TSource Engine Query"
+S "/dev/watchdog"
+end
+
+rule Macho.Stealer.Keychain 75 Stealer any any
+desc "Script or program that reads the browser key from the keychain"
+S "security find-generic-password"
+i "chrome safe storage"
+i "brave safe storage"
+i "edge safe storage"
+end
+
+rule Script.Python.EncodedExec 65 Trojan script,text 1
+desc "Python that decodes a hidden block and runs it"
+i "exec(base64.b64decode("
+i "exec(zlib.decompress(base64"
+i "exec(marshal.loads("
+i "exec(codecs.decode("
+i "eval(compile(base64"
+i "exec(bytes.fromhex("
+end
+
+rule Script.Npm.InstallHook 55 Downloader text 1
+desc "Package install step that downloads or runs hidden code"
+window 240
+I "install\":"
+i "curl "
+i "wget "
+i "powershell"
+i "| sh"
+i "|sh"
+i "node -e"
+i "base64 -d"
+i "child_process"
+end
+
+rule Go.Bin.Persistence 30 Trojan gobin 3
+desc "Small Go program that knows several ways to start again after a reboot"
+window any
+i "currentversion\\run"
+i "schtasks"
+i "/etc/cron"
+i "systemd/system"
+i ".bashrc"
+i "launchagents"
+i "crontab"
 end

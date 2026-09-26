@@ -45,6 +45,7 @@ add_library(internet_core STATIC
     src/core/sha256.cpp
     src/core/deflate.cpp
     src/core/definitions.cpp
+    src/core/goscan.cpp
     src/core/av.cpp
     src/core/firewall.cpp
     src/core/quarantine.cpp
@@ -80,7 +81,7 @@ if(NOT INTERNET_MOBILE)
 
     if(INTERNET_BUILD_TESTS)
         enable_testing()
-        add_executable(internet-tests tests/tests.cpp tests/security_tests.cpp tests/server_tests.cpp tests/gateway_tests.cpp)
+        add_executable(internet-tests tests/tests.cpp tests/security_tests.cpp tests/server_tests.cpp tests/gateway_tests.cpp tests/go_tests.cpp)
         target_link_libraries(internet-tests PRIVATE internet_core)
         add_test(NAME internet-tests COMMAND internet-tests)
     endif()

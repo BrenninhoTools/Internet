@@ -5,11 +5,13 @@
 #include <cctype>
 #include <cmath>
 #include <functional>
+#include <map>
 #include <cstring>
 #include <queue>
 #include <unordered_map>
 
 #include "deflate.hpp"
+#include "goscan.hpp"
 #include "sha256.hpp"
 
 namespace internet {
@@ -87,8 +89,9 @@ std::uint32_t scopeFor(const std::string& type) {
     if (type == "script") return kScopeScript;
     if (type == "text") return kScopeText | kScopeShell;
     if (type == "pe") return kScopePe;
+    if (type == "go" || type == "gomod") return kScopeGo | kScopeText;
     if (type == "elf" || type == "macho") return kScopeElf;
-    if (type == "zip" || type == "archive") return kScopeArchive;
+    if (type == "zip" || type == "archive" || type == "gzip" || type == "tar") return kScopeArchive;
     if (type == "pdf") return kScopePdf;
     return kScopeOther;
 }
@@ -147,6 +150,48 @@ std::size_t countOccurrences(const std::string& haystack, const char* needle) {
 
 bool isHex(char c) { return std::isxdigit(static_cast<unsigned char>(c)) != 0; }
 
+bool isTextType(const std::string& type) {
+    return type == "html" || type == "script" || type == "text" || type == "go" || type == "gomod";
+}
+
+bool validTarHeader(const std::uint8_t* block) {
+    std::uint32_t expected = 0;
+    for (int i = 148; i < 156; ++i) {
+        if (block[i] == 0 || block[i] == ' ') continue;
+        if (block[i] < '0' || block[i] > '7') return false;
+        expected = expected * 8 + static_cast<std::uint32_t>(block[i] - '0');
+    }
+    std::uint32_t sum = 0;
+    for (int i = 0; i < 512; ++i) sum += (i >= 148 && i < 156) ? 32u : block[i];
+    return sum == expected;
+}
+
+std::uint64_t tarNumber(const std::uint8_t* field, int length) {
+    if (field[0] & 0x80) {
+        std::uint64_t value = field[0] & 0x7F;
+        for (int i = 1; i < length; ++i) value = (value << 8) | field[i];
+        return value;
+    }
+    std::uint64_t value = 0;
+    for (int i = 0; i < length; ++i) {
+        if (field[i] >= '0' && field[i] <= '7') {
+            value = value * 8 + static_cast<std::uint64_t>(field[i] - '0');
+        } else if (value != 0 || (field[i] != ' ' && field[i] != 0)) {
+            break;
+        }
+    }
+    return value;
+}
+
+std::string tarText(const std::uint8_t* field, int length) {
+    return std::string(reinterpret_cast<const char*>(field), strnlen(reinterpret_cast<const char*>(field), static_cast<std::size_t>(length)));
+}
+
+bool unsafeArchivePath(const std::string& path) {
+    return path.rfind("../", 0) == 0 || path.find("/../") != std::string::npos || path.find("..\\") != std::string::npos ||
+           (!path.empty() && (path[0] == '/' || path[0] == '\\')) || (path.size() > 1 && path[1] == ':') || path == "..";
+}
+
 }
 
 const char* verdictName(Verdict verdict) {
@@ -184,6 +229,8 @@ std::string detectFileType(const std::string& name, const std::uint8_t* data, st
             return "macho";
     }
     if (startsWith(data, size, "PK\x03\x04", 4) || startsWith(data, size, "PK\x05\x06", 4)) return "zip";
+    if (startsWith(data, size, "\x1F\x8B\x08", 3)) return "gzip";
+    if (size >= 512 && std::memcmp(data + 257, "ustar", 5) == 0 && validTarHeader(data)) return "tar";
     if (startsWith(data, size, "%PDF", 4)) return "pdf";
     if (startsWith(data, size, "\x89PNG", 4) || startsWith(data, size, "\xFF\xD8\xFF", 3) || startsWith(data, size, "GIF8", 4) ||
         startsWith(data, size, "RIFF", 4))
@@ -196,6 +243,11 @@ std::string detectFileType(const std::string& name, const std::uint8_t* data, st
     std::string head(reinterpret_cast<const char*>(data), std::min<std::size_t>(size, 4096));
     head = lowered(head);
     std::string extension = extensionOf(name);
+    if (isGoModuleFile(baseName(name))) return "gomod";
+    if (extension == "go" ||
+        (inList({"", "txt", "text", "bak", "orig", "old"}, extension) &&
+         looksLikeGoSource(std::string(reinterpret_cast<const char*>(data), std::min<std::size_t>(size, 4096)))))
+        return "go";
     bool sourceFile = inList(scriptExtensions(), extension) && extension != "hta" && extension != "asp" && extension != "aspx" && extension != "jsp" && extension != "php";
     if (sourceFile) return "script";
     if (extension == "html" || extension == "htm" || extension == "xhtml" || head.find("<html") != std::string::npos ||
@@ -375,6 +427,7 @@ struct Scanner::Impl {
             const RuleDef& rule = definitions.rules[r];
             if (!(rule.scope & scope)) continue;
             std::size_t first = ruleFirst[r];
+            std::uint64_t ruleWindow = rule.window ? rule.window : window;
             int requiredTotal = 0;
             int requiredHit = 0;
             int optionalHit = 0;
@@ -388,7 +441,7 @@ struct Scanner::Impl {
                 }
             }
             if (requiredHit != requiredTotal || optionalHit < rule.need) continue;
-            if (rule.patterns.size() > 1 && !withinWindow(where, first, rule, window)) continue;
+            if (rule.patterns.size() > 1 && ruleWindow != ~static_cast<std::uint64_t>(0) && !withinWindow(where, first, rule, ruleWindow)) continue;
             addFinding(result, rule.name, rule.category, rule.description, rule.severity, location);
         }
     }
@@ -406,13 +459,16 @@ struct Scanner::Impl {
             parts.push_back(lower.substr(start, dot - start));
             start = dot + 1;
         }
-        if (parts.size() >= 3 && inList(executableExtensions(), parts.back()) &&
+        static const std::vector<std::string> launchExtensions = {"exe", "scr", "com", "bat", "cmd", "js", "jse", "vbs", "vbe",
+                                                                   "ps1", "msi", "jar", "hta", "lnk", "pif", "wsf", "apk", "sh"};
+        if (parts.size() >= 3 && inList(launchExtensions, parts.back()) &&
             inList(documentExtensions(), parts[parts.size() - 2]))
             addFinding(result, "Heur.Name.DoubleExtension", "Suspicious", "Program disguised as a document", 70, location);
         std::string extension = extensionOf(name);
-        static const std::vector<std::string> nativeExtensions = {"exe", "dll", "sys", "ocx", "scr", "cpl", "efi", "drv",
-                                                                   "com", "ax",  "mui", "tlb", "node", "so",  "dylib"};
-        if (type == "pe" && !extension.empty() && !inList(nativeExtensions, extension))
+        static const std::vector<std::string> mediaExtensions = {"pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "jpg", "jpeg", "png",
+                                                                  "gif", "txt", "zip", "rtf", "mp3", "mp4", "html", "htm", "log", "csv",
+                                                                  "json", "xml", "svg", "bmp", "ico", "wav", "avi", "mov", "mkv", "7z", "rar"};
+        if (type == "pe" && inList(mediaExtensions, extension))
             addFinding(result, "Heur.Type.ExecutableDisguised", "Trojan", "Program with a file name that hides what it is", 65, location);
     }
 
@@ -459,7 +515,7 @@ struct Scanner::Impl {
         std::size_t limit = std::min<std::size_t>(size, 4u * 1024u * 1024u);
         std::string text(reinterpret_cast<const char*>(data), limit);
         std::string lower = lowered(text);
-        bool script = type == "html" || type == "script";
+        bool script = type == "html" || type == "script" || type == "go";
 
         std::size_t longestRun = 0;
         std::size_t run = 0;
@@ -542,10 +598,7 @@ struct Scanner::Impl {
             ++inspected;
             budget += content.size();
             ScanResult child = scanInternal(location + "!" + path, content.data(), content.size(), options, depth + 1, budget);
-            for (Finding& finding : child.findings) {
-                if (finding.location.empty()) finding.location = location + "!" + path;
-                addFinding(result, finding.rule, finding.category, finding.description, finding.severity, finding.location);
-            }
+            mergeChild(result, child, location + "!" + path);
         }
         if (total > 1024ull * 1024ull * 1024ull)
             addFinding(result, "Heur.Archive.Bomb", "Exploit", "Archive expands to a huge size", 80, location);
@@ -554,6 +607,158 @@ struct Scanner::Impl {
             result.note = "Contains encrypted entries that could not be scanned";
         }
         (void)name;
+    }
+
+    void mergeChild(ScanResult& result, const ScanResult& child, const std::string& where) const {
+        result.textSizes.insert(result.textSizes.end(), child.textSizes.begin(), child.textSizes.end());
+        for (const Finding& finding : child.findings) {
+            addFinding(result, finding.rule, finding.category, finding.description, finding.severity,
+                       finding.location.empty() ? where : finding.location);
+        }
+    }
+
+    void addGoIssues(const std::vector<GoIssue>& issues, ScanResult& result, const std::string& location) const {
+        for (const GoIssue& issue : issues) addFinding(result, issue.rule, issue.category, issue.description, issue.severity, location);
+    }
+
+    void analyzeElf(const std::uint8_t* data, std::size_t size, ScanResult& result, const std::string& location) const {
+        if (size < 64 || (data[4] != 1 && data[4] != 2) || data[5] != 1) return;
+        bool wide = data[4] == 2;
+        std::uint64_t entry = wide ? littleEndian(data + 24, 4) | (static_cast<std::uint64_t>(littleEndian(data + 28, 4)) << 32) : littleEndian(data + 24, 4);
+        std::uint64_t programTable = wide ? littleEndian(data + 32, 4) : littleEndian(data + 28, 4);
+        std::uint64_t programSize = littleEndian(data + (wide ? 54 : 42), 2);
+        std::uint64_t programCount = littleEndian(data + (wide ? 56 : 44), 2);
+        std::uint64_t sectionCount = littleEndian(data + (wide ? 60 : 48), 2);
+        if (sectionCount == 0 && size > 8192)
+            addFinding(result, "Heur.ELF.NoSectionTable", "Suspicious", "Program has no section table, a trait of packers and hand made binaries", 25, location);
+        if (programCount > 64) programCount = 64;
+        bool insideCode = false;
+        for (std::uint64_t i = 0; i < programCount; ++i) {
+            std::uint64_t at = programTable + i * programSize;
+            if (programSize < (wide ? 56u : 32u) || at + programSize > size) break;
+            const std::uint8_t* header = data + at;
+            std::uint32_t type = littleEndian(header, 4);
+            std::uint32_t flags = wide ? littleEndian(header + 4, 4) : littleEndian(header + 24, 4);
+            std::uint64_t start = wide ? littleEndian(header + 16, 4) : littleEndian(header + 8, 4);
+            std::uint64_t length = wide ? littleEndian(header + 40, 4) : littleEndian(header + 20, 4);
+            if (type != 1) continue;
+            if ((flags & 7u) == 7u)
+                addFinding(result, "Heur.ELF.WritableExecutable", "Suspicious", "Segment that can both change and run code", 30, location);
+            if ((flags & 1u) && entry >= start && entry < start + length) insideCode = true;
+        }
+        if (programCount > 0 && entry != 0 && !insideCode)
+            addFinding(result, "Heur.ELF.EntryOutsideCode", "Suspicious", "Program starts running outside of its code segments", 35, location);
+        if (size >= 65536 && result.entropy >= 7.3)
+            addFinding(result, "Heur.ELF.PackedEntropy", "Suspicious", "Program looks encrypted or compressed as a whole", 35, location);
+    }
+
+    void analyzeTar(const std::uint8_t* data, std::size_t size, const ScanOptions& options, int depth, std::size_t& budget,
+                    ScanResult& result, const std::string& location) const {
+        std::size_t position = 0;
+        std::size_t inspected = 0;
+        std::size_t entries = 0;
+        std::string longName;
+        while (position + 512 <= size) {
+            const std::uint8_t* block = data + position;
+            bool empty = true;
+            for (int i = 0; i < 512 && empty; ++i) empty = block[i] == 0;
+            if (empty) break;
+            if (!validTarHeader(block)) {
+                addFinding(result, "Heur.Archive.Corrupt", "Suspicious", "Archive is damaged", 20, location);
+                break;
+            }
+            std::string name = tarText(block, 100);
+            if (std::memcmp(block + 257, "ustar", 5) == 0) {
+                std::string prefix = tarText(block + 345, 155);
+                if (!prefix.empty()) name = prefix + "/" + name;
+            }
+            std::uint64_t length = tarNumber(block + 124, 12);
+            std::uint8_t kind = block[156];
+            position += 512;
+            std::uint64_t padded = (length + 511) / 512 * 512;
+            if (position + std::min<std::uint64_t>(length, size) > size) {
+                addFinding(result, "Heur.Archive.Corrupt", "Suspicious", "Archive is cut short", 20, location);
+                break;
+            }
+            if (kind == 'L') {
+                longName = std::string(reinterpret_cast<const char*>(data + position), strnlen(reinterpret_cast<const char*>(data + position), static_cast<std::size_t>(std::min<std::uint64_t>(length, 4096))));
+                position += static_cast<std::size_t>(padded);
+                continue;
+            }
+            if (!longName.empty()) {
+                name = longName;
+                longName.clear();
+            }
+            if (++entries > 20000) {
+                addFinding(result, "Heur.Archive.TooManyEntries", "Suspicious", "Archive holds an unusual number of files", 40, location);
+                break;
+            }
+            std::string where = location + "!" + name;
+            if (unsafeArchivePath(name))
+                addFinding(result, "Heur.Archive.PathTraversal", "Exploit", "Archive entry tries to write outside its folder", 70, where);
+            if (kind == '1' || kind == '2') {
+                std::string target = tarText(block + 157, 100);
+                if (unsafeArchivePath(target) || (kind == '2' && target.find("/etc/") == 0))
+                    addFinding(result, "Heur.Archive.LinkEscape", "Exploit", "Archive link points outside its folder", 60, where);
+            }
+            bool regular = kind == '0' || kind == 0;
+            if (regular && (tarNumber(block + 100, 8) & 04000u))
+                addFinding(result, "Heur.Archive.SetuidFile", "Suspicious", "Archive holds a file that would run with the owner's rights", 40, where);
+            if (regular && length > 0 && inspected < options.maxEntries && depth < options.archiveDepth && length <= options.entryLimit &&
+                budget + length <= options.archiveLimit) {
+                ++inspected;
+                budget += static_cast<std::size_t>(length);
+                mergeChild(result, scanInternal(where, data + position, static_cast<std::size_t>(length), options, depth + 1, budget), where);
+            }
+            position += static_cast<std::size_t>(padded);
+        }
+    }
+
+    void analyzeGzip(const std::string& name, const std::uint8_t* data, std::size_t size, const ScanOptions& options, int depth,
+                     std::size_t& budget, ScanResult& result, const std::string& location) const {
+        std::size_t position = 10;
+        std::uint8_t flags = size > 3 ? data[3] : 0;
+        bool ok = size > 18;
+        if (ok && (flags & 4)) {
+            if (position + 2 > size) ok = false;
+            if (ok) position += 2 + littleEndian(data + position, 2);
+        }
+        for (std::uint8_t bit : {std::uint8_t(8), std::uint8_t(16)}) {
+            if (!ok || !(flags & bit)) continue;
+            while (position < size && data[position] != 0) ++position;
+            ++position;
+        }
+        if (ok && (flags & 2)) position += 2;
+        if (!ok || position >= size) {
+            addFinding(result, "Heur.Archive.Corrupt", "Suspicious", "Archive is damaged", 20, location);
+            return;
+        }
+        std::size_t room = options.archiveLimit > budget ? options.archiveLimit - budget : 0;
+        std::vector<std::uint8_t> content;
+        if (!inflateRaw(data + position, size - position, content, room)) {
+            if (content.size() >= room && room > 0) {
+                addFinding(result, "Heur.Archive.Bomb", "Exploit", "Archive expands to a huge size", 80, location);
+            } else {
+                addFinding(result, "Heur.Archive.Corrupt", "Suspicious", "Archive is damaged or cut short", 20, location);
+            }
+            return;
+        }
+        if (size > 0 && content.size() / std::max<std::size_t>(1, size) > 1000 && content.size() > 100u * 1024u * 1024u)
+            addFinding(result, "Heur.Archive.Bomb", "Exploit", "Archive expands to a huge size", 80, location);
+        if (depth >= options.archiveDepth) return;
+        budget += content.size();
+        std::string inner = baseName(name);
+        std::string lower = lowered(inner);
+        if (lower.size() > 3 && lower.compare(lower.size() - 3, 3, ".gz") == 0) {
+            inner.erase(inner.size() - 3);
+        } else if (lower.size() > 4 && lower.compare(lower.size() - 4, 4, ".tgz") == 0) {
+            inner.erase(inner.size() - 4);
+            inner += ".tar";
+        } else {
+            inner += ".out";
+        }
+        std::string where = location.empty() ? inner : location + "!" + inner;
+        mergeChild(result, scanInternal(where, content.data(), content.size(), options, depth + 1, budget), where);
     }
 
     ScanResult scanInternal(const std::string& name, const std::uint8_t* data, std::size_t size, const ScanOptions& options,
@@ -575,6 +780,17 @@ struct Scanner::Impl {
         }
 
         std::uint32_t scope = scopeFor(result.type);
+        GoBuildInfo goInfo;
+        bool goBinary = false;
+        if ((result.type == "pe" || result.type == "elf" || result.type == "macho") && used >= 4096) {
+            goBinary = detectGoBinary(data, used, goInfo);
+            if (goBinary) {
+                bool compact = goInfo.deps.size() <= 40 && used <= (goInfo.deps.empty() ? 12u : 32u) * 1024u * 1024u;
+                if (compact) scope |= kScopeGoBin;
+                if (goInfo.deps.size() <= 8 && used <= 12u * 1024u * 1024u) scope |= kScopeGoTiny;
+                result.language = goInfo.version.empty() ? "Go" : "Go (" + goInfo.version + ")";
+            }
+        }
         if (result.type == "script") {
             static const std::vector<std::string> shellExtensions = {"ps1", "psm1", "bat", "cmd", "sh", "bash", "vbs", "vbe", "wsf", "wsh", "hta", ""};
             if (inList(shellExtensions, extensionOf(name))) scope |= kScopeShell;
@@ -583,14 +799,29 @@ struct Scanner::Impl {
             PeInfo peInfo;
             if (parsePe(data, used, peInfo) && (peInfo.characteristics & 0x2000u) == 0) scope |= kScopePeExe;
         }
-        bool textual = result.type == "html" || result.type == "script" || result.type == "text";
+        bool textual = isTextType(result.type);
         matchPatterns(data, used, scope, textual, result, location);
         analyzeName(name, result.type, result, location);
         if (result.type == "pe") analyzePe(data, used, result, location);
-        if (result.type == "html" || result.type == "script" || result.type == "text") analyzeText(data, used, result.type, result, location);
+        if (result.type == "elf") analyzeElf(data, used, result, location);
+        if (goBinary) addGoIssues(reviewGoBinary(goInfo), result, location);
+        if (isTextType(result.type)) {
+            analyzeText(data, used, result.type, result, location);
+            std::string source(reinterpret_cast<const char*>(data), std::min<std::size_t>(used, 4u * 1024u * 1024u));
+            if (result.type == "go") {
+                result.language = "Go source";
+                addGoIssues(reviewGoSource(source), result, location);
+            } else if (result.type == "gomod") {
+                result.language = "Go module";
+                addGoIssues(reviewGoModule(source), result, location);
+            }
+        }
         if (result.type == "zip") analyzeZip(name, data, used, options, depth, budget, result, location);
+        if (result.type == "gzip") analyzeGzip(name, data, used, options, depth, budget, result, location);
+        if (result.type == "tar") analyzeTar(data, used, options, depth, budget, result, location);
         if (result.type == "binary" && used >= 8192 && result.entropy >= 7.7)
             addFinding(result, "Heur.Entropy.EncryptedBlob", "Suspicious", "Data that looks encrypted and has no known format", 30, location);
+        if (isTextType(result.type) && used > 256u * 1024u) result.textSizes.emplace_back(location, used);
         if (result.truncated) result.note = "Only the first part of the file was scanned";
         return result;
     }
@@ -605,17 +836,22 @@ std::size_t Scanner::ruleCount() const { return impl_->definitions.rules.size() 
 ScanResult Scanner::scan(const std::string& name, const std::uint8_t* data, std::size_t size, const ScanOptions& options) const {
     std::size_t budget = 0;
     ScanResult result = impl_->scanInternal(name, data, size, options, 0, budget);
-    std::vector<int> severities;
-    for (const Finding& finding : result.findings) severities.push_back(finding.severity);
-    std::sort(severities.begin(), severities.end(), std::greater<int>());
+    std::map<std::string, std::vector<int>> groups;
+    for (const Finding& finding : result.findings) groups[finding.location].push_back(finding.severity);
     int score = 0;
-    if (!severities.empty()) {
+    for (auto& group : groups) {
+        std::vector<int>& severities = group.second;
+        std::sort(severities.begin(), severities.end(), std::greater<int>());
         int rest = 0;
-        bool largeText = (result.type == "html" || result.type == "script" || result.type == "text") && size > 256u * 1024u;
+        std::uint64_t textSize = 0;
+        for (const auto& entry : result.textSizes) {
+            if (entry.first == group.first) textSize = entry.second;
+        }
+        bool largeText = textSize > 256u * 1024u;
         for (std::size_t i = 1; i < severities.size(); ++i) rest += (largeText && severities[i] < 50) ? 0 : severities[i];
-        score = std::min(100, severities[0] + rest / 3);
-        bool textual = result.type == "html" || result.type == "script" || result.type == "text";
-        if (textual && size > 1024u * 1024u && severities[0] < 90) score = std::min(score, kMaliciousScore - 5);
+        int groupScore = std::min(100, severities[0] + rest / 3);
+        if (textSize > 1024u * 1024u && severities[0] < 90) groupScore = std::min(groupScore, kMaliciousScore - 5);
+        score = std::max(score, groupScore);
     }
     result.score = score;
     if (score >= kMaliciousScore) {

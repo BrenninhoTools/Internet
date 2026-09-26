@@ -17,6 +17,9 @@ enum ScopeBit : std::uint32_t {
     kScopeOther = 128,
     kScopePeExe = 256,
     kScopeShell = 512,
+    kScopeGo = 1024,
+    kScopeGoBin = 2048,
+    kScopeGoTiny = 4096,
     kScopeAny = 0xFFFF
 };
 
@@ -33,6 +36,7 @@ struct RuleDef {
     int severity = 0;
     std::uint32_t scope = kScopeAny;
     int need = 0;
+    std::uint64_t window = 0;
     std::vector<PatternDef> patterns;
 };
 

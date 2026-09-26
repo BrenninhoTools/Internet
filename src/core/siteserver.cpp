@@ -67,6 +67,7 @@ Json scanJson(const ScanResult& result) {
         .set("entropy", result.entropy)
         .set("truncated", result.truncated)
         .set("note", result.note)
+        .set("language", result.language)
         .set("findings", std::move(findings));
 }
 

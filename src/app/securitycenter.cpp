@@ -429,6 +429,48 @@ void App::drawSecurityOverview(float width) {
     }
 
     ImGui::Dummy(ImVec2(0, unit * 0.4f));
+    sectionTitle("Coverage", palette().secondary);
+    {
+        std::size_t goRules = 0;
+        std::shared_ptr<const Scanner> engine = security_->scanner();
+        for (const RuleDef& rule : engine->definitions().rules) {
+            if (rule.name.rfind("Go.", 0) == 0 || (rule.scope & (kScopeGo | kScopeGoBin))) ++goRules;
+        }
+        struct Layer {
+            std::string label;
+            ImVec4 tint;
+        };
+        std::vector<Layer> layers = {
+            {std::to_string(engine->ruleCount()) + " signatures and rules", palette().primary},
+            {"Web pages and scripts", kSafe},
+            {"Windows programs", kSafe},
+            {"Linux and macOS programs", kSafe},
+            {"Go programs, source and modules (" + std::to_string(goRules) + " rules)", ImVec4(0.0f, 0.68f, 0.84f, 1.0f)},
+            {"Archives: zip, tar, gzip", kSafe},
+        };
+        ImDrawList* coverage = ImGui::GetWindowDrawList();
+        ImVec2 origin = ImGui::GetCursorScreenPos();
+        float chipHeight = unit * 1.7f;
+        float x = 0.0f;
+        float y = 0.0f;
+        for (const Layer& layer : layers) {
+            float w = textWidth(unit * 0.9f, layer.label) + unit * 2.4f;
+            if (x + w > width && x > 0.0f) {
+                x = 0.0f;
+                y += chipHeight + unit * 0.4f;
+            }
+            ImVec2 a(origin.x + x, origin.y + y);
+            ImVec2 b(a.x + w, a.y + chipHeight);
+            coverage->AddRectFilled(a, b, packColor(withAlpha(layer.tint, 0.18f)), chipHeight * 0.5f);
+            coverage->AddRect(a, b, packColor(withAlpha(layer.tint, 0.55f)), chipHeight * 0.5f, ImDrawFlags_None, 1.0f);
+            drawIcon(coverage, Icon::Check, ImVec2(a.x + unit * 1.0f, a.y + chipHeight * 0.5f), unit * 0.9f, packColor(layer.tint));
+            drawText(coverage, unit * 0.9f, ImVec2(a.x + unit * 1.9f, a.y + (chipHeight - unit * 0.9f) * 0.5f), IM_COL32(255, 255, 255, 255), layer.label.c_str());
+            x += w + unit * 0.5f;
+        }
+        ImGui::Dummy(ImVec2(width, y + chipHeight + unit * 0.4f));
+    }
+
+    ImGui::Dummy(ImVec2(0, unit * 0.4f));
     sectionTitle("Recent activity", palette().primary);
     if (eventsCache_.empty()) {
         ImGui::TextColored(kDim, "Nothing has been detected yet. Everything you open is checked automatically.");
@@ -534,6 +576,7 @@ void App::drawSecurityScan(float width) {
         list->AddRectFilled(rowMin, ImVec2(rowMin.x + width, rowMin.y + rowHeight), packColor(withAlpha(color, 0.10f)), unit * 0.6f);
         list->AddRectFilled(rowMin, ImVec2(rowMin.x + unit * 0.3f, rowMin.y + rowHeight), packColor(color), unit * 0.6f, ImDrawFlags_RoundCornersLeft);
         std::string chip = std::string(verdictName(record.result.verdict)) + " " + std::to_string(record.result.score);
+        if (!record.result.language.empty()) chip += "  |  " + record.result.language;
         drawText(list, unit * 0.85f, ImVec2(rowMin.x + unit, rowMin.y + unit * 0.6f), packColor(color), chip.c_str());
         std::string rule = strongest ? strongest->rule : "";
         drawText(list, unit * 1.0f, ImVec2(rowMin.x + unit, rowMin.y + unit * 1.5f), IM_COL32(255, 255, 255, 255),
@@ -548,7 +591,7 @@ void App::drawSecurityScan(float width) {
         if (canQuarantine) {
             if (textButton("rec-quarantine", "Quarantine", Icon::Folder, true)) {
                 std::string error;
-                if (security_->quarantineFile(fs::path(record.path), record.result, error)) {
+                if (security_->quarantineFile(fs::u8path(record.path), record.result, error)) {
                     {
                         std::lock_guard<std::mutex> lock(scan_->mutex);
                         for (ScanRecord& original : scan_->records) {
