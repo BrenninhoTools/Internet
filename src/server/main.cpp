@@ -2,6 +2,7 @@
 #include <cctype>
 #include <chrono>
 #include <csignal>
+#include <cstdlib>
 #include <ctime>
 #include <exception>
 #include <filesystem>
@@ -91,6 +92,20 @@ std::string stringValue(const std::map<std::string, std::string>& values, const 
     return found == values.end() || found->second.empty() ? fallback : found->second;
 }
 
+std::string environmentValue(const char* name) {
+#ifdef _WIN32
+    char* value = nullptr;
+    std::size_t size = 0;
+    if (_dupenv_s(&value, &size, name) != 0 || value == nullptr) return std::string();
+    std::string text(value);
+    std::free(value);
+    return text;
+#else
+    const char* value = std::getenv(name);
+    return value ? std::string(value) : std::string();
+#endif
+}
+
 fs::path resolveIn(const fs::path& base, const std::string& text) {
     fs::path path(text);
     return path.is_absolute() ? path : base / path;
@@ -152,6 +167,12 @@ internet::ServerConfig loadConfig(const fs::path& directory, std::function<void(
     config.gatewayPort = intValue(values, "gateway_port", 8080);
     config.gatewayLocalOnly = boolValue(values, "gateway_local_only", true);
     config.gatewayScripts = boolValue(values, "gateway_scripts", false);
+    config.googleClientId = stringValue(values, "google_client_id", environmentValue("INTERNET_GOOGLE_CLIENT_ID"));
+    config.googleClientSecret = stringValue(values, "google_client_secret", environmentValue("INTERNET_GOOGLE_CLIENT_SECRET"));
+    config.googleRedirectUri = stringValue(values, "google_redirect_uri", "");
+    config.googleAuthUrl = stringValue(values, "google_auth_url", "");
+    config.googleTokenUrl = stringValue(values, "google_token_url", "");
+    config.maxSitesPerAccount = intValue(values, "max_sites_per_account", 5);
     config.publicHost = stringValue(values, "public_host", "");
     config.openRegistry = boolValue(values, "open_registry", true);
     config.nodePortStart = intValue(values, "node_port_start", 0);

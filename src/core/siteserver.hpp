@@ -14,8 +14,10 @@
 #include <thread>
 #include <vector>
 
+#include "accounts.hpp"
 #include "firewall.hpp"
 #include "gateway.hpp"
+#include "googleauth.hpp"
 #include "json.hpp"
 #include "node.hpp"
 #include "protocol.hpp"
@@ -44,6 +46,12 @@ struct ServerConfig {
     std::string gatewayDomain;
     bool gatewayHttps = false;
     int gatewayPublicPort = 0;
+    std::string googleClientId;
+    std::string googleClientSecret;
+    std::string googleRedirectUri;
+    std::string googleAuthUrl;
+    std::string googleTokenUrl;
+    int maxSitesPerAccount = 5;
     std::function<void(const std::string&)> log;
 };
 
@@ -84,8 +92,19 @@ public:
     void log(const std::string& text);
 
 private:
+    struct Principal {
+        bool admin = false;
+        std::string account;
+        std::string token;
+    };
+
     bool handleApi(const Message& request, const std::string& peer, Message& reply);
-    Message route(const std::string& method, const std::string& path, const std::string& body, const std::string& peer);
+    Message route(const std::string& method, const std::string& path, const std::string& body, const std::string& peer,
+                  const Principal& who);
+    Message routeAccount(const std::vector<std::string>& parts, const std::string& method, const std::string& body, const Principal& who);
+    Message exchangeSession(const std::string& body, const std::string& peer);
+    Json profileJson(const Account& account);
+    bool mayUseSite(const Principal& who, const std::string& name) const;
     void manage();
     void syncSites();
     bool startOnPort(Node& node, std::set<std::uint16_t>& used);
@@ -96,6 +115,8 @@ private:
     Security security_;
     Firewall firewall_;
     Registry registry_;
+    Accounts accounts_;
+    GoogleAuth google_;
     std::mutex mutex_;
     std::map<std::string, std::unique_ptr<Node>> nodes_;
     std::set<std::string> unhosted_;

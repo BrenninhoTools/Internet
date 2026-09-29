@@ -57,9 +57,9 @@ fs::path userDataDirectory() {
     return directory;
 }
 
-std::vector<Entry> loadEntries(const fs::path& file) {
+std::vector<Entry> parseEntries(const std::string& text) {
     std::vector<Entry> entries;
-    std::ifstream stream(file);
+    std::stringstream stream(text);
     std::string line;
     while (std::getline(stream, line)) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
@@ -73,9 +73,70 @@ std::vector<Entry> loadEntries(const fs::path& file) {
     return entries;
 }
 
+std::string formatEntries(const std::vector<Entry>& entries) {
+    std::string text;
+    for (const Entry& entry : entries) text += clean(entry.url) + '\t' + clean(entry.title) + '\n';
+    return text;
+}
+
+std::string mergeEntries(const std::string& local, const std::string& remote, std::size_t limit) {
+    std::vector<Entry> merged = parseEntries(local);
+    for (Entry& item : parseEntries(remote)) {
+        bool present = std::any_of(merged.begin(), merged.end(), [&](const Entry& entry) { return entry.url == item.url; });
+        if (!present) merged.push_back(std::move(item));
+    }
+    if (limit > 0 && merged.size() > limit) merged.resize(limit);
+    return formatEntries(merged);
+}
+
+std::string formatSyncedSettings(const Settings& settings) {
+    std::ostringstream out;
+    out << "palette=" << settings.palette << '\n';
+    out << "intro=" << (settings.intro ? 1 : 0) << '\n';
+    out << "animations=" << (settings.animations ? 1 : 0) << '\n';
+    out << "zoom=" << settings.zoom << '\n';
+    return out.str();
+}
+
+bool applySyncedSettings(const std::string& text, Settings& settings) {
+    bool any = false;
+    std::stringstream stream(text);
+    std::string line;
+    while (std::getline(stream, line)) {
+        std::size_t equals = line.find('=');
+        if (equals == std::string::npos) continue;
+        std::string key = line.substr(0, equals);
+        std::string value = line.substr(equals + 1);
+        try {
+            if (key == "palette") {
+                settings.palette = std::stoi(value);
+                any = true;
+            } else if (key == "intro") {
+                settings.intro = value == "1";
+                any = true;
+            } else if (key == "animations") {
+                settings.animations = value == "1";
+                any = true;
+            } else if (key == "zoom") {
+                settings.zoom = std::clamp(std::stof(value), 0.6f, 2.5f);
+                any = true;
+            }
+        } catch (const std::exception&) {
+        }
+    }
+    return any;
+}
+
+std::vector<Entry> loadEntries(const fs::path& file) {
+    std::ifstream stream(file);
+    std::stringstream text;
+    text << stream.rdbuf();
+    return parseEntries(text.str());
+}
+
 void saveEntries(const fs::path& file, const std::vector<Entry>& entries) {
     std::ofstream stream(file, std::ios::trunc);
-    for (const Entry& entry : entries) stream << clean(entry.url) << '\t' << clean(entry.title) << '\n';
+    stream << formatEntries(entries);
 }
 
 Settings loadSettings(const fs::path& file) {

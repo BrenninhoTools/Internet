@@ -15,6 +15,9 @@ namespace internet {
 
 std::string gatewayUrl(std::uint16_t port, const std::string& internetUrl);
 bool parseInternetTarget(const std::string& text, std::string& name, std::string& path);
+class Accounts;
+class GoogleAuth;
+
 std::string normalizeWebBase(const std::string& text);
 std::string webUrlFor(const std::string& base, const std::string& internetUrl);
 std::string internetUrlFor(const std::string& base, const std::string& webUrl);
@@ -33,6 +36,8 @@ public:
     void setLoopbackOnly(bool loopbackOnly);
     void setDomain(const std::string& domain, bool https, std::uint16_t publicPort);
     void setDisplayRegistry(const Endpoint& registry);
+    void setAccounts(Accounts* accounts);
+    void setGoogle(GoogleAuth* google);
     void setLog(std::function<void(const std::string&)> log);
 
     void start(std::uint16_t port);
@@ -56,6 +61,7 @@ private:
     Response nodeList();
     Response redirectTo(const Request& request);
     Response askCertificate(const Request& request);
+    Response accountRoute(const Request& request);
     Origin origin() const;
     bool siteFor(const std::string& host, std::string& name) const;
     bool hostAllowed(const std::string& host) const;
@@ -71,6 +77,8 @@ private:
     bool https_ = false;
     std::uint16_t publicPort_ = 0;
     Endpoint displayRegistry_{"", 0};
+    Accounts* accounts_ = nullptr;
+    GoogleAuth* google_ = nullptr;
     std::function<void(const std::string&)> log_;
     std::atomic<std::uint64_t> requests_{0};
     Server server_;

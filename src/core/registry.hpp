@@ -14,6 +14,8 @@
 
 namespace internet {
 
+bool reservedName(const std::string& name);
+
 class Registry {
 public:
     void setFirewall(Firewall* firewall);

@@ -229,6 +229,13 @@ bool Socket::recvLine(std::string& line) {
     }
 }
 
+bool Socket::recvSome(std::string& data) {
+    if (buffer_.empty() && !fill()) return false;
+    data.append(buffer_);
+    buffer_.clear();
+    return true;
+}
+
 bool Socket::recvExact(std::string& data, std::size_t size) {
     while (buffer_.size() < size) {
         if (!fill()) return false;

@@ -54,9 +54,40 @@ add_library(internet_core STATIC
     src/core/gateway.cpp
     src/core/browser.cpp
     src/core/siteserver.cpp
+    src/core/encoding.cpp
+    src/core/http.cpp
+    src/core/accounts.cpp
+    src/core/googleauth.cpp
 )
 target_include_directories(internet_core PUBLIC src/core)
 target_link_libraries(internet_core PUBLIC Threads::Threads)
+
+set(INTERNET_TLS_DEFAULT NONE)
+if(WIN32)
+    set(INTERNET_TLS_DEFAULT WINHTTP)
+elseif(NOT INTERNET_MOBILE)
+    set(INTERNET_TLS_DEFAULT MBEDTLS)
+endif()
+set(INTERNET_TLS ${INTERNET_TLS_DEFAULT} CACHE STRING "HTTPS client used to sign in with Google: WINHTTP, MBEDTLS or NONE")
+set(INTERNET_MBEDTLS_URL "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.2/mbedtls-3.6.2.tar.bz2"
+    CACHE STRING "Where to download Mbed TLS from")
+if(INTERNET_TLS STREQUAL "WINHTTP")
+    target_compile_definitions(internet_core PUBLIC INTERNET_TLS_WINHTTP=1)
+    target_link_libraries(internet_core PUBLIC winhttp)
+elseif(INTERNET_TLS STREQUAL "MBEDTLS")
+    include(FetchContent)
+    set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
+    set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+    set(GEN_FILES OFF CACHE BOOL "" FORCE)
+    set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
+    set(INSTALL_MBEDTLS_HEADERS OFF CACHE BOOL "" FORCE)
+    set(USE_SHARED_MBEDTLS_LIBRARY OFF CACHE BOOL "" FORCE)
+    set(USE_STATIC_MBEDTLS_LIBRARY ON CACHE BOOL "" FORCE)
+    FetchContent_Declare(mbedtls URL ${INTERNET_MBEDTLS_URL} DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    FetchContent_MakeAvailable(mbedtls)
+    target_compile_definitions(internet_core PUBLIC INTERNET_TLS_MBEDTLS=1)
+    target_link_libraries(internet_core PUBLIC mbedtls mbedx509 mbedcrypto)
+endif()
 if(WIN32)
     target_link_libraries(internet_core PUBLIC ws2_32 advapi32 shell32)
 endif()
@@ -81,7 +112,7 @@ if(NOT INTERNET_MOBILE)
 
     if(INTERNET_BUILD_TESTS)
         enable_testing()
-        add_executable(internet-tests tests/tests.cpp tests/security_tests.cpp tests/server_tests.cpp tests/gateway_tests.cpp tests/go_tests.cpp)
+        add_executable(internet-tests tests/tests.cpp tests/security_tests.cpp tests/server_tests.cpp tests/gateway_tests.cpp tests/go_tests.cpp tests/auth_tests.cpp)
         target_link_libraries(internet-tests PRIVATE internet_core)
         add_test(NAME internet-tests COMMAND internet-tests)
     endif()
@@ -197,6 +228,7 @@ if(INTERNET_BUILD_APP)
         src/app/editor.cpp
         src/app/securitycenter.cpp
         src/app/browserpanel.cpp
+        src/app/account.cpp
         src/app/ui.cpp
         src/app/theme.cpp
         src/app/widgets.cpp

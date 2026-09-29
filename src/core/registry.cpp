@@ -31,6 +31,8 @@ bool isLocal(const std::string& peer) { return peer == "127.0.0.1" || peer == ":
 
 }
 
+bool reservedName(const std::string& name) { return isReserved(name); }
+
 void Registry::setFirewall(Firewall* firewall) { firewall_ = firewall; }
 
 void Registry::setPublicHost(std::string host) {

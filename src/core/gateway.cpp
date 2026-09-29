@@ -3,11 +3,15 @@
 #include <algorithm>
 #include <cctype>
 #include <map>
+#include <optional>
 #include <sstream>
 #include <utility>
 
+#include "accounts.hpp"
 #include "client.hpp"
+#include "googleauth.hpp"
 #include "json.hpp"
+#include "sha256.hpp"
 
 namespace internet {
 
@@ -48,6 +52,7 @@ std::string reason(int status) {
         case 421: return "Misdirected Request";
         case 451: return "Unavailable For Legal Reasons";
         case 502: return "Bad Gateway";
+        case 503: return "Service Unavailable";
         default: return "Error";
     }
 }
@@ -127,8 +132,45 @@ std::string pageStyle() {
            ".bad{border-color:#ef4444;background:#2a1020}.bad h1{background:linear-gradient(90deg,#f87171,#fb923c);-webkit-background-clip:text;background-clip:text}"
            ".pill{display:inline-block;padding:2px 10px;border-radius:999px;background:#1e2b55;color:#9fb0d8;font-size:.8rem;margin-right:6px}"
            "code{font-family:ui-monospace,Consolas,monospace;color:#c4b5fd}"
+           ".google{display:inline-flex;align-items:center;gap:10px;padding:11px 18px;border-radius:10px;background:#fff;color:#1f1f1f;font-weight:600;text-decoration:none}"
+           ".button{display:inline-block;padding:10px 18px;border-radius:10px;background:#1e2b55;color:#e8ecf8;font-weight:600;text-decoration:none}"
+           ".button:hover{background:#28397a}"
            "</style>";
 }
+
+const char kCookieName[] = "internet_session";
+
+const char kGoogleLogo[] =
+    "<svg width=\"18\" height=\"18\" viewBox=\"0 0 48 48\" aria-hidden=\"true\">"
+    "<path fill=\"#EA4335\" d=\"M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z\"/>"
+    "<path fill=\"#4285F4\" d=\"M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z\"/>"
+    "<path fill=\"#FBBC05\" d=\"M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z\"/>"
+    "<path fill=\"#34A853\" d=\"M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z\"/>"
+    "</svg>";
+
+std::string cookieValue(const std::string& header, const std::string& name) {
+    std::size_t position = 0;
+    while (position < header.size()) {
+        std::size_t end = header.find(';', position);
+        if (end == std::string::npos) end = header.size();
+        std::string pair = trimmed(header.substr(position, end - position));
+        position = end + 1;
+        std::size_t equals = pair.find('=');
+        if (equals != std::string::npos && pair.substr(0, equals) == name) return pair.substr(equals + 1);
+    }
+    return std::string();
+}
+
+std::string sessionCookie(const std::string& token, bool secure) {
+    return std::string(kCookieName) + "=" + token + "; Path=/; Max-Age=" + std::to_string(kSessionSeconds) + "; HttpOnly; SameSite=Lax" +
+           (secure ? "; Secure" : "");
+}
+
+std::string clearedCookie(bool secure) {
+    return std::string(kCookieName) + "=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax" + (secure ? "; Secure" : "");
+}
+
+std::string logoutToken(const std::string& session) { return sha256Hex(session + ":logout").substr(0, 16); }
 
 std::string document(const std::string& title, const std::string& body) {
     return "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" +
@@ -196,6 +238,7 @@ struct Gateway::Request {
     std::string path;
     std::string query;
     std::string host;
+    std::string cookie;
 };
 
 struct Gateway::Response {
@@ -327,6 +370,16 @@ void Gateway::setDisplayRegistry(const Endpoint& registry) {
     displayRegistry_ = registry;
 }
 
+void Gateway::setAccounts(Accounts* accounts) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    accounts_ = accounts;
+}
+
+void Gateway::setGoogle(GoogleAuth* google) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    google_ = google;
+}
+
 void Gateway::setLog(std::function<void(const std::string&)> log) {
     std::lock_guard<std::mutex> lock(mutex_);
     log_ = std::move(log);
@@ -428,7 +481,10 @@ void Gateway::handle(Socket& socket, const std::string& peer) {
         }
         if (line.empty()) break;
         std::size_t colon = line.find(':');
-        if (colon != std::string::npos && lowered(line.substr(0, colon)) == "host") request.host = trimmed(line.substr(colon + 1));
+        if (colon == std::string::npos) continue;
+        std::string header = lowered(line.substr(0, colon));
+        if (header == "host") request.host = trimmed(line.substr(colon + 1));
+        if (header == "cookie") request.cookie = trimmed(line.substr(colon + 1));
     }
 
     Response response;
@@ -480,6 +536,8 @@ Gateway::Response Gateway::route(const Request& request, const std::string& peer
         }
         return serveSite(request, name);
     }
+    if (request.path == "/login" || request.path == "/account" || request.path == "/logout" || request.path.rfind("/auth/google/", 0) == 0)
+        return accountRoute(request);
     if (request.path == "/_nodes") return nodeList();
     if (request.path == "/go") return redirectTo(request);
     if (request.path == "/favicon.ico") {
@@ -517,6 +575,113 @@ Gateway::Response Gateway::askCertificate(const Request& request) {
     response.status = allowed ? 200 : 404;
     response.body = allowed ? "ok" : "unknown domain";
     return response;
+}
+
+Gateway::Response Gateway::accountRoute(const Request& request) {
+    Accounts* accounts;
+    GoogleAuth* google;
+    bool secure;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        accounts = accounts_;
+        google = google_;
+        secure = https_;
+    }
+    auto page = [](int status, const std::string& title, const std::string& body) {
+        Response response;
+        response.status = status;
+        response.body = document(title, body);
+        return response;
+    };
+    auto redirect = [](const std::string& target) {
+        Response response;
+        response.status = 302;
+        response.headers["Location"] = target;
+        response.body = document("Redirect", "<p><a href=\"" + escapeHtml(target) + "\">Continue</a></p>");
+        return response;
+    };
+    auto failed = [&](int status, const std::string& title, const std::string& message) {
+        return page(status, title, "<div class=\"card bad\"><h1>" + escapeHtml(title) + "</h1><p>" + escapeHtml(message) +
+                                       "</p><p><a class=\"button\" href=\"/login\">Try again</a></p></div>");
+    };
+    if (!accounts || !google) return failed(404, "Sign-in is not available", "This server does not have accounts turned on.");
+
+    std::string session = cookieValue(request.cookie, kCookieName);
+    std::optional<Account> who;
+    if (!session.empty()) who = accounts->sessionAccount(session);
+
+    if (request.path == "/login") {
+        if (who) return redirect("/account");
+        std::string body = "<h1>Sign in</h1><p>Use your Google account to publish sites and keep your bookmarks with you on every device.</p>";
+        if (!google->enabled()) {
+            body += "<div class=\"card bad\"><p>Signing in with Google is not set up on this server.</p></div>";
+        } else {
+            body += std::string("<p><a class=\"google\" href=\"/auth/google/start\">") + kGoogleLogo + "Sign in with Google</a></p>";
+        }
+        return page(200, "Sign in", body);
+    }
+
+    if (request.path == "/auth/google/start") {
+        if (!google->enabled()) return failed(503, "Sign-in is not available", "Signing in with Google is not set up on this server.");
+        std::string port = queryValue(request.query, "app_port");
+        std::string challenge = queryValue(request.query, "challenge");
+        int appPort = 0;
+        if (!port.empty()) {
+            bool digits = port.size() <= 5 && port.find_first_not_of("0123456789") == std::string::npos;
+            appPort = digits ? std::stoi(port) : 0;
+            bool goodChallenge = challenge.size() == 64 && challenge.find_first_not_of("0123456789abcdef") == std::string::npos;
+            if (appPort < 1024 || appPort > 65535 || !goodChallenge) return failed(400, "Bad request", "The app sent an invalid sign-in request.");
+        }
+        return redirect(google->begin(appPort > 0 ? challenge : std::string(), appPort));
+    }
+
+    if (request.path == "/auth/google/callback") {
+        if (!google->enabled()) return failed(503, "Sign-in is not available", "Signing in with Google is not set up on this server.");
+        if (!queryValue(request.query, "error").empty()) return failed(200, "Sign-in cancelled", "You did not finish signing in with Google.");
+        LoginRequest pending;
+        GoogleIdentity identity;
+        std::string problem;
+        if (!google->finish(queryValue(request.query, "code"), queryValue(request.query, "state"), pending, identity, problem)) {
+            note("Sign-in failed: " + problem);
+            return failed(400, "Sign-in failed", problem);
+        }
+        Account account = accounts->signIn(identity.subject, identity.email, identity.name, identity.picture);
+        note("Signed in " + account.email);
+        if (pending.appPort > 0) {
+            std::string handoff = accounts->createHandoff(account.id, pending.appChallenge);
+            return redirect("http://127.0.0.1:" + std::to_string(pending.appPort) + "/?code=" + handoff);
+        }
+        Response response = redirect("/account");
+        response.headers["Set-Cookie"] = sessionCookie(accounts->createSession(account.id), secure);
+        return response;
+    }
+
+    if (request.path == "/logout") {
+        if (!who) return redirect("/login");
+        if (queryValue(request.query, "t") != logoutToken(session)) return redirect("/account");
+        accounts->endSession(session);
+        Response response = redirect("/login");
+        response.headers["Set-Cookie"] = clearedCookie(secure);
+        return response;
+    }
+
+    if (request.path != "/account") return failed(404, "Not found", "There is nothing at this address.");
+    if (!who) return redirect("/login");
+    std::string body = "<h1>Your account</h1><div class=\"card\"><p><strong>" + escapeHtml(who->name) + "</strong><br>" + escapeHtml(who->email) + "</p></div>";
+    body += "<h2>Your sites</h2>";
+    std::vector<std::string> names = accounts->sitesOf(who->id);
+    if (names.empty()) {
+        body += "<div class=\"card\"><p>You have no sites yet. Create one from the Internet app or with the API.</p></div>";
+    } else {
+        body += "<ul>";
+        for (const std::string& name : names) {
+            body += "<li><a href=\"" + escapeHtml(urlFor(kScheme + name + "/")) + "\"><strong>" + escapeHtml(name) + "</strong><span>internet://" +
+                    escapeHtml(name) + "/</span></a></li>";
+        }
+        body += "</ul>";
+    }
+    body += "<p><a class=\"button\" href=\"/logout?t=" + logoutToken(session) + "\">Sign out</a></p>";
+    return page(200, "Your account", body);
 }
 
 Gateway::Response Gateway::nodeList() {

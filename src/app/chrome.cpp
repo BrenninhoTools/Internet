@@ -226,6 +226,11 @@ void App::drawSidebar() {
     }
     if (compact_) ImGui::Checkbox("Show page source", &showSource_);
     ImGui::Spacing();
+    if (signedIn() || signInPhase_ != 0 || (discoveredLogin_ && !webBase().empty())) {
+        std::string title = signedIn() ? "Account" : "Sign in";
+        if (ImGui::CollapsingHeader((title + "###account").c_str(), ImGuiTreeNodeFlags_DefaultOpen)) drawAccount(width);
+        ImGui::Spacing();
+    }
     drawOutline(width);
 
     if (ImGui::CollapsingHeader("Registry", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -683,6 +688,15 @@ std::vector<PaletteItem> App::buildPaletteItems() {
                 startRegistry();
             }
         });
+    if (signedIn()) {
+        add("Sync now", "Bookmarks, history and settings", Icon::Reload, colors.primary, [this] {
+            syncDue_ = -1.0;
+            startSync();
+        });
+        add("Sign out", account_.email, Icon::Close, colors.secondary, [this] { signOut(); });
+    } else if (discoveredLogin_ && !webBase().empty() && signInPhase_ == 0) {
+        add("Sign in with Google", "Publish sites and sync your data", Icon::Globe, colors.primary, [this] { startSignIn(); });
+    }
     add("Share the current link", "Send it to someone", Icon::Share, colors.primary, [this] { shareCurrent(); });
     if (!shareTarget().empty()) {
         add("Copy web link", webBase().empty() ? "No web address known yet" : "Opens in any browser", Icon::Copy, colors.primary,

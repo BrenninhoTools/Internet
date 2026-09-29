@@ -9,6 +9,7 @@
 #include <system_error>
 
 #include "client.hpp"
+#include "http.hpp"
 #include "sha256.hpp"
 #include "sitefiles.hpp"
 
@@ -109,7 +110,10 @@ std::string generateToken() {
 }
 
 SiteServer::SiteServer(ServerConfig config)
-    : config_(std::move(config)), security_(config_.dataDir / "security"), firewall_(config_.firewall) {
+    : config_(std::move(config)),
+      security_(config_.dataDir / "security"),
+      firewall_(config_.firewall),
+      accounts_(config_.dataDir / "accounts") {
     token_ = loadToken();
 }
 
@@ -189,12 +193,29 @@ void SiteServer::start() {
         std::string shown = config_.publicHost.empty() ? domain : config_.publicHost;
         if (config_.hostRegistry && !shown.empty()) gateway_->setDisplayRegistry(Endpoint{shown, registry_.port()});
         gateway_->setLog([this](const std::string& text) { log("[gateway] " + text); });
+        gateway_->setAccounts(&accounts_);
+        gateway_->setGoogle(&google_);
         try {
             gateway_->start(static_cast<std::uint16_t>(config_.gatewayPort));
         } catch (const std::exception& failure) {
             log(std::string("Gateway disabled: ") + failure.what());
             gateway_.reset();
         }
+    }
+
+    GoogleConfig google;
+    google.clientId = config_.googleClientId;
+    google.clientSecret = config_.googleClientSecret;
+    google.redirectUri = config_.googleRedirectUri;
+    if (google.redirectUri.empty() && gateway_) google.redirectUri = gateway_->indexUrl() + "auth/google/callback";
+    if (!config_.googleAuthUrl.empty()) google.authUrl = config_.googleAuthUrl;
+    if (!config_.googleTokenUrl.empty()) google.tokenUrl = config_.googleTokenUrl;
+    google_.configure(google);
+    if (google_.enabled()) {
+        log("Sign in with Google is on. The redirect URI to add to your Google OAuth client is " + google.redirectUri);
+        if (!httpsAvailable()) log("This build cannot make HTTPS requests, so signing in will fail until it is built with HTTPS support");
+    } else if (!config_.googleClientId.empty() || !config_.googleClientSecret.empty()) {
+        log("Sign in with Google needs a client id, a client secret and the web gateway");
     }
 
     started_ = std::chrono::steady_clock::now();
@@ -405,6 +426,7 @@ Json SiteServer::status() {
         .set("bans", stats.bans)
         .set("gateway", static_cast<std::uint64_t>(gatewayPort()))
         .set("web", web)
+        .set("login", google_.enabled())
         .set("publicHost", config_.publicHost)
         .set("domain", cleanDomain(config_.gatewayDomain));
 }
@@ -435,33 +457,115 @@ bool SiteServer::handleApi(const Message& request, const std::string& peer, Mess
         reply = failJson("400", "Invalid path");
         return true;
     }
-    if (!constantTimeEquals(token_, request.fields[3])) {
+    std::string method = request.fields[1];
+    std::transform(method.begin(), method.end(), method.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+    const std::string& supplied = request.fields[3];
+    Principal who;
+    if (constantTimeEquals(token_, supplied)) {
+        who.admin = true;
+    } else if (std::optional<Account> account = accounts_.sessionAccount(supplied)) {
+        who.account = account->id;
+        who.token = supplied;
+    } else if (!(method == "POST" && path == "/v1/session/exchange")) {
         firewall_.violation(peer, "invalid API token", 2);
         reply = failJson("401", "Invalid token");
         return true;
     }
-    std::string method = request.fields[1];
-    std::transform(method.begin(), method.end(), method.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
-    reply = route(method, path, request.body, peer);
+    reply = route(method, path, request.body, peer, who);
     return true;
 }
 
-Message SiteServer::route(const std::string& method, const std::string& path, const std::string& body, const std::string& peer) {
-    (void)peer;
+Json SiteServer::profileJson(const Account& account) {
+    Json owned = Json::array();
+    for (const std::string& name : accounts_.sitesOf(account.id)) owned.push(name);
+    return Json::object()
+        .set("id", account.id)
+        .set("email", account.email)
+        .set("name", account.name)
+        .set("picture", account.picture)
+        .set("sites", std::move(owned))
+        .set("maxSites", config_.maxSitesPerAccount);
+}
+
+bool SiteServer::mayUseSite(const Principal& who, const std::string& name) const {
+    return who.admin || (!who.account.empty() && accounts_.siteOwner(name) == who.account);
+}
+
+Message SiteServer::exchangeSession(const std::string& body, const std::string& peer) {
+    Json input;
+    std::string problem;
+    if (!Json::parse(body, input, problem)) return failJson("400", "Invalid JSON: " + problem);
+    std::optional<std::string> accountId = accounts_.redeemHandoff(input.stringOr("code", ""), input.stringOr("verifier", ""));
+    std::optional<Account> account = accountId ? accounts_.find(*accountId) : std::nullopt;
+    if (!account) {
+        firewall_.violation(peer, "invalid sign-in code", 2);
+        return failJson("401", "That sign-in code is not valid. Start again.");
+    }
+    std::string token = accounts_.createSession(account->id);
+    log("[account] " + account->email + " signed in from the app");
+    return okJson(Json::object().set("token", token).set("account", profileJson(*account)));
+}
+
+Message SiteServer::routeAccount(const std::vector<std::string>& parts, const std::string& method, const std::string& body,
+                                 const Principal& who) {
+    if (who.account.empty()) return failJson("403", "Sign in with a Google account to use this");
+    std::optional<Account> account = accounts_.find(who.account);
+    if (!account) return failJson("401", "This account no longer exists");
+    if (parts.size() == 2) {
+        if (method != "GET") return failJson("405", "Use GET");
+        return okJson(profileJson(*account));
+    }
+    if (parts.size() == 3 && parts[2] == "session") {
+        if (method != "DELETE") return failJson("405", "Use DELETE");
+        accounts_.endSession(who.token);
+        return okJson(Json::object().set("signedOut", true));
+    }
+    if (parts.size() == 4 && parts[2] == "sync") {
+        const std::string& kind = parts[3];
+        if (!Accounts::validSyncKind(kind)) return failJson("404", "Unknown kind of data");
+        if (method == "GET") {
+            SyncBlob blob;
+            accounts_.readSync(account->id, kind, blob);
+            return okJson(Json::object().set("kind", kind).set("content", blob.content).set("updated", blob.updated));
+        }
+        if (method == "PUT") {
+            std::int64_t updated = 0;
+            std::string problem;
+            if (!accounts_.writeSync(account->id, kind, body, updated, problem)) {
+                return failJson(body.size() > kMaxSyncBytes ? "413" : "422", problem);
+            }
+            return okJson(Json::object().set("kind", kind).set("updated", updated));
+        }
+        return failJson("405", "Use GET or PUT");
+    }
+    return failJson("404", "Unknown endpoint");
+}
+
+Message SiteServer::route(const std::string& method, const std::string& path, const std::string& body, const std::string& peer,
+                          const Principal& who) {
     std::vector<std::string> parts = segments(path);
     if (parts.size() < 2 || parts[0] != "v1") return failJson("404", "Unknown endpoint");
     const std::string& area = parts[1];
+
+    if (area == "session" && parts.size() == 3 && parts[2] == "exchange") {
+        if (method != "POST") return failJson("405", "Use POST");
+        return exchangeSession(body, peer);
+    }
+    if (!who.admin && who.account.empty()) return failJson("401", "Invalid token");
 
     if (area == "status" && parts.size() == 2) {
         if (method != "GET") return failJson("405", "Use GET");
         return okJson(status());
     }
 
+    if (area == "account") return routeAccount(parts, method, body, who);
+
     if (area == "sites") {
         if (parts.size() == 2) {
             if (method == "GET") {
                 Json list = Json::array();
                 for (const SiteInfo& site : sites()) {
+                    if (!mayUseSite(who, site.name)) continue;
                     list.push(Json::object()
                                   .set("name", site.name)
                                   .set("online", site.online)
@@ -477,14 +581,24 @@ Message SiteServer::route(const std::string& method, const std::string& path, co
                 std::string problem;
                 if (!Json::parse(body, input, problem)) return failJson("400", "Invalid JSON: " + problem);
                 std::string name = input.stringOr("name", "");
-                if (!createSite(name, problem)) return failJson("422", problem);
+                if (who.admin) {
+                    if (!createSite(name, problem)) return failJson("422", problem);
+                } else {
+                    if (!validName(name) || name == "api") return failJson("422", "Invalid site name");
+                    if (reservedName(name)) return failJson("422", "That name is reserved");
+                    if (!accounts_.claimSite(name, who.account, config_.maxSitesPerAccount, problem)) return failJson("422", problem);
+                    if (!createSite(name, problem)) {
+                        accounts_.releaseSite(name);
+                        return failJson("422", problem);
+                    }
+                }
                 log("Created site " + name + " through the API");
                 return okJson(Json::object().set("name", name).set("url", "internet://" + name + "/"));
             }
             return failJson("405", "Use GET or POST");
         }
         const std::string& name = parts[2];
-        if (!validSite(name)) return failJson("404", "Site not found");
+        if (!validSite(name) || !mayUseSite(who, name)) return failJson("404", "Site not found");
         if (parts.size() == 3) {
             if (method == "GET") {
                 for (const SiteInfo& site : sites()) {
@@ -503,6 +617,7 @@ Message SiteServer::route(const std::string& method, const std::string& path, co
             if (method == "DELETE") {
                 std::string problem;
                 if (!deleteSite(name, problem)) return failJson("500", problem);
+                accounts_.releaseSite(name);
                 log("Deleted site " + name + " through the API");
                 return okJson(Json::object().set("deleted", name));
             }
@@ -590,6 +705,7 @@ Message SiteServer::route(const std::string& method, const std::string& path, co
     }
 
     if (area == "security") {
+        if (!who.admin) return failJson("403", "This needs the administrator token");
         std::string action = parts.size() > 2 ? parts[2] : "status";
         if (action == "status") {
             SecuritySettings settings = security_.settings();

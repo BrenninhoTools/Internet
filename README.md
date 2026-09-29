@@ -81,6 +81,7 @@ Start `internet-app`. An animated intro plays (click or press any key to skip), 
 - **Tabs**: open as many as you like with the `+` button. Each tab has its own history, shows a colored avatar for its site (a spinner while it loads) and a tooltip with the full title and address, and the status bar shows how many are open.
 - **Address bar**: a badge shows which site you are on, turns into a search icon while you type, and gets a warning ring when the page is suspicious or blocked.
 - **Web links**: when the server you are connected to has a web address (see below), **Share** gives you a link such as `https://blog.example.com/page` that opens in any browser, on any device, even without the app. The address is detected from the server, or you can type it in the **Web link** section of the sidebar, which also has buttons to copy the web link or the `internet://` link. Pasting a web link of that server into the address bar, or clicking one in a page, opens it in the app. Any other web address opens in your default browser.
+- **Account**: on a server that supports it, **Sign in with Google** keeps your bookmarks, history and settings on every device and lets you create sites, list them and upload the folder you host (see below).
 - **Reading**: text sits in a centered column that is easy to read on wide windows, a progress line under the toolbar shows how far you have scrolled, a round button brings you back to the top, and the sidebar lists the headings under **On this page** so you can jump to any of them.
 - **Command palette** (`Ctrl+K`): type a few letters to run any action, open a site, a bookmark or a recent page, switch the theme, or jump to a file in the editor.
 - **Site editor**: see below.
@@ -213,8 +214,42 @@ These keys go in `server.conf`:
 | `gateway_domain` | empty | domain that browsers use, sites are `NAME.domain` |
 | `gateway_https` | `false` | addresses shown by the gateway use `https://` |
 | `gateway_public_port` | `0` | port shown in the addresses, `0` for the default one |
+| `google_client_id`, `google_client_secret` | empty | turn on signing in with Google (see above) |
+| `google_redirect_uri` | the gateway address plus `/auth/google/callback` | set it only when a proxy changes the address |
+| `max_sites_per_account` | `5` | how many sites one signed in person can create |
 
 Every page still passes through Internet Security before it is served, uploads are scanned, and the firewall limits requests and bans abusive hosts. Keep `data/token.txt` secret, because it controls the API. Requests that arrive through a proxy on the same machine look like they come from the machine itself, which the firewall does not limit, so put the rate limits in the proxy.
+
+## Signing in with Google
+
+A public server can let people sign in with their Google account. A signed in person owns the sites they create, can upload to them, and keeps bookmarks, history and settings on every device.
+
+### Set it up
+
+1. In the [Google Cloud console](https://console.cloud.google.com/apis/credentials) create an **OAuth client ID** of type **Web application** (configure the consent screen first, the `openid`, `email` and `profile` scopes need no review).
+2. Add the redirect URI to **Authorized redirect URIs**. It is the web address of your gateway plus `/auth/google/callback`, for example `https://example.com/auth/google/callback`. The server prints the exact address when it starts.
+3. Give the client ID and secret to the server, either in `server.conf`:
+
+       google_client_id=1234567890-abc.apps.googleusercontent.com
+       google_client_secret=GOCSPX-your-secret
+
+   or with the `INTERNET_GOOGLE_CLIENT_ID` and `INTERNET_GOOGLE_CLIENT_SECRET` environment variables (the compose files pass them on). The gateway must be on (`gateway_port`), and `gateway_domain` and `gateway_public_port` decide the address in step 2. To try it on your own computer use `gateway_domain=localhost` and `gateway_public_port=8080`: Google accepts `http://localhost:8080/auth/google/callback` for testing.
+
+The server needs to reach `oauth2.googleapis.com` over HTTPS. Windows uses the system HTTPS client. Linux and macOS builds download and build Mbed TLS (`-DINTERNET_TLS=MBEDTLS`, the default there) and read the system certificates, or the PEM file named by `INTERNET_CA_FILE`. Use `-DINTERNET_TLS=NONE` to build without it, and then signing in is unavailable.
+
+### How it works
+
+- **On the web**: `/login` shows a **Sign in with Google** button, `/account` lists your sites and lets you sign out. The session lives in an `HttpOnly` cookie that is only sent to the gateway's own address, never to the sites.
+- **In the app**: when the server offers sign-in, the sidebar shows **Sign in with Google**. The app opens your browser, waits on a temporary local address, and trades a one-time code for a session (the code is bound to a secret that only the app knows). The session is kept in `account.txt` in the app's data folder, and **Sign out** ends it on the server too.
+- **Safety**: the sign-in uses the authorization code flow with PKCE and a `state` value, the client secret never leaves the server, the identity comes straight from Google over TLS and is checked (issuer, audience, expiry, verified email), and sessions are stored only as hashes.
+
+### What an account can do
+
+- Create sites (`max_sites_per_account`, 5 by default). Reserved names such as `api`, `admin` and `www` and names that are taken are refused. A person only sees and changes their own sites, and **Upload** in the sidebar sends the files of the folder you host to one of them.
+- Keep bookmarks, history and settings (theme, zoom, animations, intro) on the server. Bookmarks and history from your devices are merged, and a change made on one device replaces the older copy on the others. A new device takes your saved settings the first time.
+- The administrator token keeps working for everything, and the security endpoints (`/v1/security/...`) are for the administrator only.
+
+Accounts are stored in `data/accounts/` (Google id, email, name and picture address, hashed sessions, site owners and synced data).
 
 ## The API
 
@@ -233,8 +268,11 @@ The API is a node named `api`. A request is sent as `API <METHOD> <path> <token>
 | `GET /v1/security/quarantine`, `DELETE /v1/security/quarantine/{id}` | list or delete quarantined files |
 | `GET /v1/security/firewall`, `DELETE /v1/security/firewall/bans/{host}` | firewall statistics, lift a ban |
 | `POST /v1/security/definitions` | replace the definitions with the request body |
+| `POST /v1/session/exchange` | trade a one-time sign-in code (`{"code", "verifier"}`) for a session token (public) |
+| `GET /v1/account`, `DELETE /v1/account/session` | the signed in profile and its sites, or sign out |
+| `GET`, `PUT /v1/account/sync/{bookmarks,history,settings}` | read or store the synced data of the account |
 
-Everything except `/v1/status` needs the token. From the terminal (the body of `PUT` and `POST` is read from standard input):
+Everything except `/v1/status` and `/v1/session/exchange` needs the administrator token or the session token of an account. A session token only sees the sites of its account and cannot use `/v1/security/...`. From the terminal (the body of `PUT` and `POST` is read from standard input):
 
     internet api GET /v1/sites --token <token>
     internet api PUT /v1/sites/home/files/index.html --token <token> < index.html

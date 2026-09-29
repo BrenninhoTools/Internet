@@ -120,18 +120,22 @@ void App::discoverWeb() {
     } catch (const std::exception&) {
         return;
     }
-    webJob_ = std::make_shared<Job<std::string>>();
+    webJob_ = std::make_shared<Job<ServerInfo>>();
     auto job = webJob_;
     std::thread([job, endpoint] {
-        std::string web;
+        ServerInfo info;
         try {
             Page page = fetch(endpoint, "internet://api/v1/status");
             Json json;
             std::string error;
-            if (Json::parse(page.body, json, error)) web = normalizeWebBase(json.stringOr("web", ""));
+            if (Json::parse(page.body, json, error)) {
+                info.web = normalizeWebBase(json.stringOr("web", ""));
+                const Json* login = json.find("login");
+                info.login = login != nullptr && login->type() == Json::Type::Bool && login->asBool();
+            }
         } catch (const std::exception&) {
         }
-        job->result = std::move(web);
+        job->result = std::move(info);
         job->done = true;
     }).detach();
 }

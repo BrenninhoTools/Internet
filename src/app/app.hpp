@@ -22,7 +22,9 @@
 #include "protocol.hpp"
 #include "registry.hpp"
 #include "security.hpp"
+#include "server.hpp"
 #include "sitefiles.hpp"
+#include "siteserver.hpp"
 #include "storage.hpp"
 #include "theme.hpp"
 #include "widgets.hpp"
@@ -117,6 +119,51 @@ struct OutlineItem {
     float y = 0.0f;
 };
 
+struct ServerInfo {
+    std::string web;
+    bool login = false;
+};
+
+struct AccountProfile {
+    std::string id;
+    std::string email;
+    std::string name;
+    std::vector<std::string> sites;
+    int maxSites = 0;
+};
+
+struct LoginCatch {
+    std::mutex mutex;
+    std::string code;
+    std::atomic<bool> got{false};
+};
+
+struct RemoteBlob {
+    std::string content;
+    long long updated = 0;
+};
+
+struct SyncOutcome {
+    std::string content;
+    long long updated = 0;
+    bool adopt = false;
+};
+
+struct SyncResult {
+    bool ok = false;
+    std::string message;
+    std::map<std::string, SyncOutcome> outcomes;
+    std::map<std::string, std::string> captured;
+};
+
+struct PublishState {
+    std::atomic<int> done{0};
+    std::atomic<int> total{0};
+    std::atomic<bool> finished{false};
+    std::string message;
+    std::string site;
+};
+
 struct PaletteItem {
     std::string label;
     std::string hint;
@@ -208,6 +255,29 @@ private:
     void copyInternetLink();
     void discoverWeb();
     void drawWebLink(float width);
+
+    bool signedIn() const;
+    void loadAccount();
+    void saveAccount() const;
+    void saveSyncState() const;
+    void loadSyncState();
+    void forgetSyncState();
+    void startSignIn();
+    void cancelSignIn();
+    void pollAccount();
+    void signOut();
+    void sessionExpired();
+    bool accountCall(const std::string& method, const std::string& path, const std::string& body,
+                     std::function<void(const ApiResponse&)> done);
+    void refreshAccount();
+    void createOwnedSite();
+    void publishSite(const std::string& name);
+    void requestSync(double delay);
+    void startSync();
+    void applySync(SyncResult& result);
+    std::string localSyncData(const std::string& kind) const;
+    void applyLocalSync(const std::string& kind, const std::string& content);
+    void drawAccount(float width);
 
     void drawHome();
     void drawHero(float width, bool compact);
@@ -403,11 +473,34 @@ private:
     std::shared_ptr<Job<PageResult>> pageJob_;
     std::shared_ptr<Job<NodeListResult>> nodesJob_;
     std::vector<NodeInfo> nodes_;
-    std::shared_ptr<Job<std::string>> webJob_;
+    std::shared_ptr<Job<ServerInfo>> webJob_;
     std::string discoveredWeb_;
+    bool discoveredLogin_ = false;
     std::string webRegistry_;
     double webChecked_ = -1000.0;
     char webBuffer_[256];
+
+    AccountProfile account_;
+    std::string accountToken_;
+    std::string accountRegistry_;
+    int signInPhase_ = 0;
+    double signInStarted_ = 0.0;
+    std::string signInVerifier_;
+    std::unique_ptr<Server> loginListener_;
+    std::shared_ptr<LoginCatch> loginCatch_;
+    std::shared_ptr<Job<ApiResponse>> exchangeJob_;
+    std::shared_ptr<Job<ApiResponse>> callJob_;
+    std::function<void(const ApiResponse&)> callDone_;
+    std::shared_ptr<Job<SyncResult>> syncJob_;
+    std::map<std::string, RemoteBlob> synced_;
+    double syncDue_ = -1.0;
+    double syncPolled_ = -1000.0;
+    double profileTried_ = -1000.0;
+    bool profileLoaded_ = false;
+    std::string syncMessage_;
+    long long syncedClock_ = 0;
+    std::shared_ptr<PublishState> publish_;
+    char siteNameBuffer_[64];
     std::string nodesMessage_;
     double lastRefresh_ = -100.0;
 

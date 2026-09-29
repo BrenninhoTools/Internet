@@ -1,6 +1,6 @@
 FROM debian:bookworm-slim AS build
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential cmake ninja-build \
+    && apt-get install -y --no-install-recommends build-essential cmake ninja-build ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY . .
@@ -8,7 +8,10 @@ RUN cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DINTERNET_BUILD_APP
     && cmake --build build --target internet internet-server
 
 FROM debian:bookworm-slim
-RUN useradd --system --create-home --home-dir /srv/internet --shell /usr/sbin/nologin internet
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --create-home --home-dir /srv/internet --shell /usr/sbin/nologin internet
 COPY --from=build /src/build/internet /src/build/internet-server /usr/local/bin/
 COPY deploy/entrypoint.sh /usr/local/bin/internet-entrypoint
 RUN sed -i 's/\r$//' /usr/local/bin/internet-entrypoint && chmod +x /usr/local/bin/internet-entrypoint

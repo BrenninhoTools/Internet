@@ -29,6 +29,7 @@ public:
     bool sendAll(const std::string& data);
     bool recvLine(std::string& line);
     bool recvExact(std::string& data, std::size_t size);
+    bool recvSome(std::string& data);
 
 private:
     bool fill();

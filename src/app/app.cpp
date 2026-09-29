@@ -107,6 +107,9 @@ App::App(fs::path dataDirectory) : dataDir_(std::move(dataDirectory)) {
     settings_ = loadSettings(dataDir_ / "settings.txt");
     settings_.palette = std::clamp(settings_.palette, 0, paletteCount() - 1);
     copyText(webBuffer_, sizeof webBuffer_, settings_.webBase);
+    siteNameBuffer_[0] = '\0';
+    loadAccount();
+    if (!accountToken_.empty()) loadSyncState();
     bookmarks_ = loadEntries(dataDir_ / "bookmarks.txt");
     recent_ = loadEntries(dataDir_ / "history.txt");
     applyTheme(settings_.palette);
@@ -143,6 +146,7 @@ void App::saveState() {
     saveEntries(dataDir_ / "bookmarks.txt", bookmarks_);
     saveEntries(dataDir_ / "history.txt", recent_);
     settingsDirty_ = false;
+    if (signedIn()) requestSync(3.0);
 }
 
 void App::setInsets(float left, float top, float right, float bottom) {
@@ -580,13 +584,16 @@ void App::pollJobs() {
     if (webRegistry_ != registryBuffer_) {
         webRegistry_ = registryBuffer_;
         discoveredWeb_.clear();
+        discoveredLogin_ = false;
         webJob_.reset();
         webChecked_ = -1000.0;
     }
     if (webJob_ && webJob_->done) {
-        discoveredWeb_ = std::move(webJob_->result);
+        discoveredWeb_ = webJob_->result.web;
+        discoveredLogin_ = webJob_->result.login;
         webJob_.reset();
     }
+    pollAccount();
     bool hasApi = std::any_of(nodes_.begin(), nodes_.end(), [](const NodeInfo& info) { return info.name == "api"; });
     if (!webJob_ && hasApi && ImGui::GetTime() - webChecked_ > 120.0) discoverWeb();
 
