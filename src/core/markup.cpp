@@ -38,9 +38,11 @@ void appendUtf8(std::string& out, unsigned long code) {
 
 bool decodeEntity(const std::string& name, std::string& out) {
     static const std::map<std::string, unsigned long> named = {
-        {"amp", '&'},     {"lt", '<'},      {"gt", '>'},      {"quot", '"'},    {"apos", '\''},
-        {"nbsp", ' '},    {"copy", 0xA9},   {"reg", 0xAE},    {"hellip", 0x2026}, {"mdash", 0x2014},
-        {"ndash", 0x2013}, {"laquo", 0xAB}, {"raquo", 0xBB},  {"bull", 0x2022},
+        {"amp", '&'},       {"lt", '<'},        {"gt", '>'},        {"quot", '"'},      {"apos", '\''},
+        {"nbsp", ' '},      {"copy", 0xA9},     {"reg", 0xAE},      {"hellip", 0x2026}, {"mdash", 0x2014},
+        {"ndash", 0x2013},  {"laquo", 0xAB},    {"raquo", 0xBB},    {"bull", 0x2022},   {"lsquo", 0x2018},
+        {"rsquo", 0x2019},  {"ldquo", 0x201C},  {"rdquo", 0x201D},  {"middot", 0xB7},   {"times", 0xD7},
+        {"deg", 0xB0},      {"plusmn", 0xB1},   {"euro", 0x20AC},
     };
     if (name.empty()) return false;
     if (name[0] == '#') {
@@ -56,6 +58,24 @@ bool decodeEntity(const std::string& name, std::string& out) {
     if (found == named.end()) return false;
     appendUtf8(out, found->second);
     return true;
+}
+
+std::string unescape(const std::string& text) {
+    std::string out;
+    std::size_t i = 0;
+    while (i < text.size()) {
+        if (text[i] == '&') {
+            std::size_t end = text.find(';', i);
+            std::string decoded;
+            if (end != std::string::npos && end - i <= 10 && decodeEntity(text.substr(i + 1, end - i - 1), decoded)) {
+                out += decoded;
+                i = end + 1;
+                continue;
+            }
+        }
+        out += text[i++];
+    }
+    return out;
 }
 
 std::string attribute(const std::string& tag, const std::string& lowerTag, const std::string& name) {
@@ -83,6 +103,27 @@ std::string attribute(const std::string& tag, const std::string& lowerTag, const
     }
 }
 
+bool blank(const Span& span) { return span.text.find_first_not_of(' ') == std::string::npos && span.href.empty(); }
+
+void trimSpans(std::vector<Span>& spans) {
+    while (!spans.empty() && blank(spans.front())) spans.erase(spans.begin());
+    if (!spans.empty()) {
+        std::string& first = spans.front().text;
+        first.erase(0, first.find_first_not_of(' '));
+    }
+    while (!spans.empty() && blank(spans.back())) spans.pop_back();
+    if (!spans.empty()) {
+        std::string& last = spans.back().text;
+        std::size_t end = last.find_last_not_of(' ');
+        last.erase(end == std::string::npos ? 0 : end + 1);
+    }
+}
+
+struct ListState {
+    bool ordered;
+    int counter;
+};
+
 class Builder {
 public:
     Document build(const std::string& html) {
@@ -99,6 +140,7 @@ public:
                 ++i;
             }
         }
+        endRow();
         finishBlock();
         return std::move(document_);
     }
@@ -132,11 +174,84 @@ private:
         return end + 1;
     }
 
+    int* styleCounter(const std::string& name) {
+        if (name == "b" || name == "strong") return &bold_;
+        if (name == "i" || name == "em" || name == "cite" || name == "dfn" || name == "var") return &italic_;
+        if (name == "code" || name == "kbd" || name == "samp" || name == "tt") return &code_;
+        if (name == "mark") return &mark_;
+        if (name == "s" || name == "del" || name == "strike") return &strike_;
+        if (name == "u" || name == "ins") return &underline_;
+        return nullptr;
+    }
+
+    unsigned currentStyle() const {
+        unsigned style = 0;
+        if (bold_ > 0) style |= kStyleBold;
+        if (italic_ > 0) style |= kStyleItalic;
+        if (code_ > 0) style |= kStyleCode;
+        if (mark_ > 0) style |= kStyleMark;
+        if (strike_ > 0) style |= kStyleStrike;
+        if (underline_ > 0) style |= kStyleUnderline;
+        return style;
+    }
+
+    void emphasisBlock(int& counter, bool closing) {
+        if (closing) {
+            flushText();
+            if (counter > 0) --counter;
+            startBlock(BlockKind::Paragraph, 0);
+        } else {
+            startBlock(BlockKind::Paragraph, 0);
+            ++counter;
+        }
+    }
+
     void handleTag(const std::string& name, bool closing, const std::string& body, const std::string& lowerBody) {
-        if (name.size() == 2 && name[0] == 'h' && name[1] >= '1' && name[1] <= '6') {
+        if (!closing) {
+            std::string id = attribute(body, lowerBody, "id");
+            if (id.empty() && name == "a") id = attribute(body, lowerBody, "name");
+            if (!id.empty()) pendingAnchor_ = unescape(id);
+        }
+        if (int* counter = styleCounter(name)) {
+            flushText();
+            if (!closing) {
+                ++*counter;
+            } else if (*counter > 0) {
+                --*counter;
+            }
+            return;
+        }
+        if (handleTable(name, closing)) return;
+
+        bool heading = name.size() == 2 && name[0] == 'h' && name[1] >= '1' && name[1] <= '6';
+        if (inCell_ && (heading || name == "li" || name == "pre" || name == "hr" || isBlockTag(name))) {
+            character(' ');
+            return;
+        }
+        if (heading) {
             startBlock(closing ? BlockKind::Paragraph : BlockKind::Heading, name[1] - '0');
+        } else if (name == "ul" || name == "ol") {
+            if (closing) {
+                if (!lists_.empty()) lists_.pop_back();
+            } else {
+                int start = std::atoi(attribute(body, lowerBody, "start").c_str());
+                bool ordered = name == "ol";
+                lists_.push_back(ListState{ordered, ordered && start > 0 ? start - 1 : 0});
+            }
+            startBlock(BlockKind::Paragraph, 0);
         } else if (name == "li") {
             startBlock(closing ? BlockKind::Paragraph : BlockKind::ListItem, 0);
+            if (!closing && !lists_.empty()) {
+                block_.depth = static_cast<int>(lists_.size()) - 1;
+                if (lists_.back().ordered) block_.number = ++lists_.back().counter;
+            }
+        } else if (name == "blockquote") {
+            if (closing) {
+                if (quote_ > 0) --quote_;
+            } else {
+                ++quote_;
+            }
+            startBlock(BlockKind::Paragraph, 0);
         } else if (name == "pre") {
             preformatted_ = !closing;
             startBlock(closing ? BlockKind::Paragraph : BlockKind::Preformatted, 0);
@@ -144,10 +259,17 @@ private:
             startBlock(BlockKind::Paragraph, 0);
             Block rule;
             rule.kind = BlockKind::Rule;
+            rule.quote = quote_;
             document_.blocks.push_back(rule);
+        } else if (name == "img") {
+            if (!closing) addImage(body, lowerBody);
+        } else if (name == "caption" || name == "summary" || name == "dt") {
+            emphasisBlock(bold_, closing);
+        } else if (name == "figcaption") {
+            emphasisBlock(italic_, closing);
         } else if (name == "a") {
             flushText();
-            href_ = closing ? "" : attribute(body, lowerBody, "href");
+            href_ = closing ? "" : unescape(attribute(body, lowerBody, "href"));
         } else if (name == "title") {
             flushText();
             inTitle_ = !closing;
@@ -156,10 +278,88 @@ private:
         }
     }
 
+    bool handleTable(const std::string& name, bool closing) {
+        if (name == "table") {
+            endRow();
+            startBlock(BlockKind::Paragraph, 0);
+            return true;
+        }
+        if (name == "tr") {
+            endRow();
+            startBlock(BlockKind::Paragraph, 0);
+            if (!closing) beginRow();
+            return true;
+        }
+        if (name == "td" || name == "th") {
+            endCell();
+            if (closing) return true;
+            if (!inRow_) beginRow();
+            text_.clear();
+            inCell_ = true;
+            cell_ = Cell{};
+            cell_.header = name == "th";
+            if (cell_.header) {
+                ++bold_;
+                cellBold_ = true;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    void beginRow() {
+        inRow_ = true;
+        row_ = Block{};
+        row_.kind = BlockKind::TableRow;
+        row_.quote = quote_;
+    }
+
+    void endCell() {
+        if (!inCell_) return;
+        flushText();
+        trimSpans(cell_.spans);
+        row_.cells.push_back(std::move(cell_));
+        cell_ = Cell{};
+        inCell_ = false;
+        if (cellBold_) {
+            if (bold_ > 0) --bold_;
+            cellBold_ = false;
+        }
+    }
+
+    void endRow() {
+        endCell();
+        if (!inRow_) return;
+        if (!row_.cells.empty()) document_.blocks.push_back(std::move(row_));
+        row_ = Block{};
+        inRow_ = false;
+    }
+
+    void addImage(const std::string& body, const std::string& lowerBody) {
+        std::string source = unescape(attribute(body, lowerBody, "src"));
+        std::string alt = unescape(attribute(body, lowerBody, "alt"));
+        if (source.rfind("data:", 0) == 0) source.clear();
+        std::string target = href_.empty() ? source : href_;
+        if (inCell_) {
+            flushText();
+            cell_.spans.push_back(Span{alt.empty() ? "[image]" : "[" + alt + "]", target, currentStyle()});
+            return;
+        }
+        startBlock(BlockKind::Paragraph, 0);
+        Block image;
+        image.kind = BlockKind::Image;
+        image.quote = quote_;
+        image.anchor = std::move(pendingAnchor_);
+        pendingAnchor_.clear();
+        image.spans.push_back(Span{alt, target, 0});
+        document_.blocks.push_back(std::move(image));
+    }
+
     static bool isBlockTag(const std::string& name) {
-        static const char* names[] = {"p",  "div",    "ul",      "ol",     "table",   "tr",     "br",
-                                      "blockquote", "section", "header", "footer", "article", "nav",
-                                      "main", "body", "form",    "dl",     "dt",      "dd",     "html"};
+        static const char* names[] = {"p",       "div",     "ul",      "ol",      "table",    "tr",     "br",
+                                      "blockquote", "section", "header", "footer",  "article",  "nav",    "main",
+                                      "body",    "form",    "dl",      "dt",      "dd",       "html",   "aside",
+                                      "figure",  "details", "address", "fieldset", "hgroup"};
         for (const char* item : names) {
             if (name == item) return true;
         }
@@ -194,7 +394,8 @@ private:
         if (inTitle_) {
             document_.title += text_;
         } else {
-            block_.spans.push_back(Span{text_, href_});
+            std::vector<Span>& spans = inCell_ ? cell_.spans : block_.spans;
+            spans.push_back(Span{text_, href_, currentStyle()});
         }
         text_.clear();
     }
@@ -204,37 +405,42 @@ private:
         block_ = Block{};
         block_.kind = kind;
         block_.level = level;
+        block_.quote = quote_;
+        block_.anchor = std::move(pendingAnchor_);
+        pendingAnchor_.clear();
     }
 
     void finishBlock() {
         flushText();
-        if (block_.kind != BlockKind::Preformatted) {
-            while (!block_.spans.empty() && block_.spans.front().text.find_first_not_of(' ') == std::string::npos &&
-                   block_.spans.front().href.empty())
-                block_.spans.erase(block_.spans.begin());
-            if (!block_.spans.empty()) {
-                std::string& first = block_.spans.front().text;
-                first.erase(0, first.find_first_not_of(' '));
-            }
-            while (!block_.spans.empty() && block_.spans.back().text.find_first_not_of(' ') == std::string::npos &&
-                   block_.spans.back().href.empty())
-                block_.spans.pop_back();
-            if (!block_.spans.empty()) {
-                std::string& last = block_.spans.back().text;
-                std::size_t end = last.find_last_not_of(' ');
-                last.erase(end == std::string::npos ? 0 : end + 1);
-            }
+        if (block_.kind != BlockKind::Preformatted) trimSpans(block_.spans);
+        if (!block_.spans.empty()) {
+            document_.blocks.push_back(std::move(block_));
+        } else if (!block_.anchor.empty() && pendingAnchor_.empty()) {
+            pendingAnchor_ = block_.anchor;
         }
-        if (!block_.spans.empty()) document_.blocks.push_back(std::move(block_));
         block_ = Block{};
     }
 
     Document document_;
     Block block_;
+    Block row_;
+    Cell cell_;
+    std::vector<ListState> lists_;
     std::string text_;
     std::string href_;
+    std::string pendingAnchor_;
+    int bold_ = 0;
+    int italic_ = 0;
+    int code_ = 0;
+    int mark_ = 0;
+    int strike_ = 0;
+    int underline_ = 0;
+    int quote_ = 0;
     bool preformatted_ = false;
     bool inTitle_ = false;
+    bool inRow_ = false;
+    bool inCell_ = false;
+    bool cellBold_ = false;
 };
 
 }
@@ -245,7 +451,7 @@ Document parsePlain(const std::string& text) {
     Document document;
     Block block;
     block.kind = BlockKind::Preformatted;
-    block.spans.push_back(Span{text, ""});
+    block.spans.push_back(Span{text, "", 0});
     document.blocks.push_back(std::move(block));
     return document;
 }
@@ -259,6 +465,12 @@ Document parseContent(const std::string& contentType, const std::string& body) {
     if (contentType == "text/html") return parseMarkup(body);
     if (isTextType(contentType)) return parsePlain(body);
     return Document{};
+}
+
+std::string plainText(const Block& block) {
+    std::string text;
+    for (const Span& span : block.spans) text += span.text;
+    return text;
 }
 
 }

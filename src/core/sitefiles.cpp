@@ -207,7 +207,9 @@ bool renameSitePath(const fs::path& root, const std::string& from, const std::st
     return true;
 }
 
-std::vector<std::string> siteTemplateNames() { return {"Blank page", "Article", "Landing page", "Link list"}; }
+std::vector<std::string> siteTemplateNames() {
+    return {"Blank page", "Article", "Landing page", "Link list", "Documentation"};
+}
 
 std::string siteTemplate(int index, const std::string& siteName, const std::string& title) {
     std::string name = escapeHtml(siteName);
@@ -233,6 +235,18 @@ std::string siteTemplate(int index, const std::string& siteName, const std::stri
                    "<li><a href=\"index.html\">Start page</a></li>\n"
                    "<li><a href=\"internet://home/\">The home site</a></li>\n"
                    "<li><a href=\"about.html\">About</a></li>\n</ul>\n" + tail;
+        case 4:
+            return head + "<a name=\"top\"></a>\n<h1>" + heading + "</h1>\n<p>Reference for <b>internet://" + name +
+                   "/</b>. Jump to <a href=\"#setup\">setup</a> or <a href=\"#options\">options</a>.</p>\n"
+                   "<h2 id=\"setup\">Setup</h2>\n<ol>\n<li>Create a folder for your site</li>\n"
+                   "<li>Host it with the name <code>" + name + "</code></li>\n"
+                   "<li>Share the link with a friend</li>\n</ol>\n"
+                   "<blockquote>Tip: the editor previews every change as you type.</blockquote>\n"
+                   "<h2 id=\"options\">Options</h2>\n<table>\n<tr><th>Name</th><th>Meaning</th></tr>\n"
+                   "<tr><td><code>name</code></td><td>The address of your site</td></tr>\n"
+                   "<tr><td><code>port</code></td><td>Where the node listens, <i>0</i> picks one</td></tr>\n"
+                   "</table>\n<pre>internet://" + name + "/index.html</pre>\n<hr>\n"
+                   "<p><a href=\"#top\">Back to the top</a></p>\n" + tail;
         default:
             return head + "<h1>" + heading + "</h1>\n<p>Start writing here.</p>\n" + tail;
     }

@@ -73,6 +73,85 @@ void testMarkup() {
           "preformatted");
 }
 
+void testMarkupElements() {
+    using internet::BlockKind;
+    internet::Document document = internet::parseMarkup(
+        "<h2 id=\"intro\">Intro</h2><p>Some <b>bold</b>, <em>italic</em> and <code>code</code> "
+        "<b><i>both</i></b> <mark>hit</mark> <s>gone</s> <u>under</u></p>"
+        "<ol start=\"3\"><li>three<ul><li>nested</li></ul></li><li>four</li></ol>"
+        "<blockquote><p>quoted</p><blockquote>deep</blockquote></blockquote>"
+        "<table><caption>Sizes</caption><tr><th>Name</th><th>Size</th></tr>"
+        "<tr><td>a <b>b</b></td><td>2</td></tr></table>"
+        "<img src=\"pic.png\" alt=\"A &amp; B\"><a href=\"#intro\">top</a>");
+    check(document.blocks.size() == 12, "element block count");
+    if (document.blocks.size() != 12) return;
+
+    check(document.blocks[0].kind == BlockKind::Heading && document.blocks[0].anchor == "intro", "heading anchor");
+    const internet::Block& text = document.blocks[1];
+    check(text.spans.size() == 14, "styled span count");
+    if (text.spans.size() == 14) {
+        check(text.spans[1].style == internet::kStyleBold, "bold span");
+        check(text.spans[3].style == internet::kStyleItalic, "italic span");
+        check(text.spans[5].style == internet::kStyleCode, "code span");
+        check(text.spans[7].style == (internet::kStyleBold | internet::kStyleItalic), "nested styles");
+        check(text.spans[9].style == internet::kStyleMark, "mark span");
+        check(text.spans[11].style == internet::kStyleStrike, "strike span");
+        check(text.spans[13].style == internet::kStyleUnderline, "underline span");
+        check(text.spans[0].style == 0 && text.spans[2].style == 0, "plain spans stay plain");
+    }
+
+    check(document.blocks[2].kind == BlockKind::ListItem && document.blocks[2].number == 3 &&
+              document.blocks[2].depth == 0,
+          "ordered list start");
+    check(document.blocks[3].depth == 1 && document.blocks[3].number == 0, "nested bullet");
+    check(document.blocks[4].number == 4 && document.blocks[4].depth == 0, "ordered list continues");
+    check(document.blocks[5].quote == 1 && document.blocks[6].quote == 2, "quote depth");
+
+    check(document.blocks[7].kind == BlockKind::Paragraph && (document.blocks[7].spans[0].style & internet::kStyleBold),
+          "caption is emphasized");
+    const internet::Block& header = document.blocks[8];
+    const internet::Block& row = document.blocks[9];
+    check(header.kind == BlockKind::TableRow && header.cells.size() == 2 && header.cells[0].header, "table header row");
+    check(row.kind == BlockKind::TableRow && row.cells.size() == 2 && !row.cells[0].header, "table body row");
+    check(row.cells[0].spans.size() == 2 && row.cells[0].spans[1].style == internet::kStyleBold, "cell styling");
+    check(row.cells[1].spans.size() == 1 && row.cells[1].spans[0].text == "2", "cell text");
+
+    check(document.blocks[10].kind == BlockKind::Image && document.blocks[10].spans[0].text == "A & B" &&
+              document.blocks[10].spans[0].href == "pic.png",
+          "image block");
+    check(document.blocks[11].spans[0].href == "#intro", "anchor link");
+
+    internet::Document cell = internet::parseMarkup("<table><tr><td><p>x</p><p>y</p></td></tr></table>");
+    check(cell.blocks.size() == 1 && cell.blocks[0].cells.size() == 1 &&
+              cell.blocks[0].cells[0].spans.size() == 1 && cell.blocks[0].cells[0].spans[0].text == "x y",
+          "blocks inside a cell collapse");
+
+    internet::Document docs = internet::parseMarkup(internet::siteTemplate(4, "demo", "Docs"));
+    bool hasTable = false;
+    bool hasSteps = false;
+    bool hasQuote = false;
+    bool hasCode = false;
+    for (const internet::Block& block : docs.blocks) {
+        if (block.kind == BlockKind::TableRow) hasTable = true;
+        if (block.kind == BlockKind::ListItem && block.number > 0) hasSteps = true;
+        if (block.quote > 0) hasQuote = true;
+        for (const internet::Span& span : block.spans) {
+            if (span.style & internet::kStyleCode) hasCode = true;
+        }
+    }
+    check(hasTable && hasSteps && hasQuote && hasCode, "documentation template uses the new elements");
+    check(!docs.blocks.empty() && docs.blocks[0].kind == BlockKind::Heading && docs.blocks[0].anchor == "top",
+          "documentation template anchors the top");
+
+    internet::Document loose = internet::parseMarkup("<div id=\"top\"><h1>Title</h1></div>");
+    check(loose.blocks.size() == 1 && loose.blocks[0].anchor == "top", "anchor carried to the next block");
+
+    internet::Document linked = internet::parseMarkup("<a href=\"/x?a=1&amp;b=2\"><img src=\"p.png\"></a>");
+    check(linked.blocks.size() == 1 && linked.blocks[0].kind == BlockKind::Image &&
+              linked.blocks[0].spans[0].href == "/x?a=1&b=2",
+          "linked image uses the link target");
+}
+
 void testNetwork() {
     fs::path root = fs::temp_directory_path() / "internet-tests-site";
     fs::remove_all(root);
@@ -226,6 +305,7 @@ int runGoTests();
 int main() {
     testUrls();
     testMarkup();
+    testMarkupElements();
     testStorage();
     testSiteFiles();
     testNetwork();

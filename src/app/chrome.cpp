@@ -24,6 +24,18 @@ std::string lowered(std::string text) {
     return text;
 }
 
+std::string siteOf(const std::string& url) {
+    const std::string scheme = "internet://";
+    if (url.rfind(scheme, 0) != 0) return std::string();
+    std::size_t end = url.find('/', scheme.size());
+    return url.substr(scheme.size(), end == std::string::npos ? std::string::npos : end - scheme.size());
+}
+
+std::string initialOf(const std::string& site) {
+    if (site.empty()) return "?";
+    return std::string(1, static_cast<char>(std::toupper(static_cast<unsigned char>(site.front()))));
+}
+
 int fuzzyScore(const std::string& query, const std::string& text) {
     if (query.empty()) return 1;
     std::string haystack = lowered(text);
@@ -214,6 +226,7 @@ void App::drawSidebar() {
     }
     if (compact_) ImGui::Checkbox("Show page source", &showSource_);
     ImGui::Spacing();
+    drawOutline(width);
 
     if (ImGui::CollapsingHeader("Registry", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::TextColored(kDimColor, "Address used by this app");
@@ -314,6 +327,78 @@ void App::drawSidebar() {
     }
 }
 
+void App::drawTabIdentity(ImDrawList* list, int index, ImVec2 center, float radius) {
+    bool active = index == activeTab_;
+    const TabState& state = tabs_[static_cast<std::size_t>(index)];
+    bool onHome = active ? home_ : state.home;
+    const std::string& url = active ? currentUrl_ : state.currentUrl;
+    bool loading = active ? loading_ : state.loading;
+    const Palette& colors = palette();
+    if (loading) {
+        drawSpinner(list, center, radius, packColor(colors.secondary), static_cast<float>(time_));
+        return;
+    }
+    if (active && editor_) {
+        list->AddCircleFilled(center, radius, packColor(colors.primary), 20);
+        drawIcon(list, Icon::Pencil, center, radius * 1.4f, packColor(kWhite));
+        return;
+    }
+    if (onHome || url.empty()) {
+        drawIcon(list, Icon::Globe, center, radius * 2.0f, packColor(withAlpha(kWhite, 0.85f)));
+        return;
+    }
+    std::string site = siteOf(url);
+    list->AddCircleFilled(center, radius, packColor(site.empty() ? colors.primary : avatarColor(site)), 20);
+    std::string letter = initialOf(site);
+    float size = radius * 1.35f;
+    drawText(list, size, ImVec2(center.x - textWidth(size, letter) * 0.5f, center.y - size * 0.5f),
+             IM_COL32(255, 255, 255, 255), letter.c_str());
+}
+
+void App::drawAddressChip(ImVec2 min, ImVec2 max, bool typing) {
+    ImDrawList* list = ImGui::GetWindowDrawList();
+    const Palette& colors = palette();
+    float frame = max.y - min.y;
+    float radius = frame * 0.3f;
+    ImVec2 center(min.x + frame * 0.62f, (min.y + max.y) * 0.5f);
+    bool page = !home_ && !editor_ && !securityView_ && !currentUrl_.empty();
+
+    if (typing) {
+        list->AddCircleFilled(center, radius, packColor(mixColor(colors.primary, colors.secondary, 0.35f)), 24);
+        drawIcon(list, Icon::Search, center, radius * 1.5f, packColor(kWhite));
+        return;
+    }
+    if (securityView_) {
+        list->AddCircleFilled(center, radius, packColor(stateColor(securityState())), 24);
+        drawIcon(list, Icon::Shield, center, radius * 1.5f, packColor(kWhite));
+        return;
+    }
+    if (editor_) {
+        list->AddCircleFilled(center, radius, packColor(colors.primary), 24);
+        drawIcon(list, Icon::Pencil, center, radius * 1.5f, packColor(kWhite));
+        return;
+    }
+    if (!page) {
+        drawIcon(list, Icon::Globe, center, radius * 2.0f, packColor(mixColor(colors.primary, kWhite, 0.5f)));
+        return;
+    }
+    if (loading_) {
+        drawSpinner(list, center, radius, packColor(colors.secondary), static_cast<float>(time_));
+        return;
+    }
+    std::string site = siteOf(currentUrl_);
+    list->AddCircleFilled(center, radius, packColor(site.empty() ? colors.primary : avatarColor(site)), 24);
+    std::string letter = initialOf(site);
+    float size = radius * 1.4f;
+    drawText(list, size, ImVec2(center.x - textWidth(size, letter) * 0.5f, center.y - size * 0.5f),
+             IM_COL32(255, 255, 255, 255), letter.c_str());
+    if (blocked_ || threat_.verdict == Verdict::Malicious) {
+        list->AddCircle(center, radius + 3.0f, packColor(kErrorColor), 24, 2.0f);
+    } else if (threat_.verdict == Verdict::Suspicious) {
+        list->AddCircle(center, radius + 3.0f, packColor(kWarn), 24, 2.0f);
+    }
+}
+
 void App::drawTabBar() {
     float unit = ImGui::GetFontSize();
     float height = ImGui::GetFrameHeight();
@@ -351,12 +436,17 @@ void App::drawTabBar() {
 
         std::string title = tabTitle(i);
         bool showClose = count > 1 && (hovered || active);
-        float textLimit = tabWidth - unit * (showClose ? 3.2f : 1.6f);
-        drawText(list, unit, ImVec2(position.x + unit * 0.8f, position.y + (height - unit) * 0.5f),
+        drawTabIdentity(list, i, ImVec2(position.x + unit * 1.05f, position.y + height * 0.5f), unit * 0.62f);
+        float textLimit = tabWidth - unit * (showClose ? 4.6f : 3.0f);
+        drawText(list, unit, ImVec2(position.x + unit * 2.0f, position.y + (height - unit) * 0.5f),
                  packColor(active ? kWhite : ImVec4(0.75f, 0.77f, 0.85f, 1.0f)), fitText(title, unit, textLimit).c_str());
 
         ImVec2 closeMin(max.x - unit * 2.0f, position.y);
         bool overClose = showClose && mouse.x >= closeMin.x && mouse.x <= max.x && mouse.y >= position.y && mouse.y <= max.y;
+        if (hovered && !touch_ && !overClose) {
+            const std::string& address = active ? currentUrl_ : tabs_[static_cast<std::size_t>(i)].currentUrl;
+            ImGui::SetTooltip("%s%s%s", title.c_str(), address.empty() ? "" : "\n", address.c_str());
+        }
         if (showClose) {
             drawIcon(list, Icon::Close, ImVec2(max.x - unit * 1.1f, position.y + height * 0.5f), unit * 0.9f,
                      overClose ? IM_COL32(255, 120, 120, 255) : packColor(withAlpha(kWhite, 0.6f)));
@@ -421,11 +511,15 @@ void App::drawToolbar(bool compact) {
         focusAddress_ = false;
     }
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, frame * 0.5f);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(frame * 0.45f, ImGui::GetStyle().FramePadding.y));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(frame * 1.2f, ImGui::GetStyle().FramePadding.y));
     bool submitted = ImGui::InputTextWithHint("##address", "Type an address, e.g. internet://home/", address_,
                                               sizeof address_,
                                               ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+    ImVec2 fieldMin = ImGui::GetItemRectMin();
+    ImVec2 fieldMax = ImGui::GetItemRectMax();
+    bool typing = ImGui::IsItemActive();
     ImGui::PopStyleVar(2);
+    drawAddressChip(fieldMin, fieldMax, typing);
 
     if (compact) {
         ImGui::SameLine();
@@ -485,7 +579,11 @@ void App::drawToolbar(bool compact) {
     ImDrawList* list = ImGui::GetWindowDrawList();
     list->AddRectFilled(position, ImVec2(position.x + width, position.y + thickness),
                         packColor(withAlpha(palette().primary, 0.14f)), thickness * 0.5f);
+    float& progress = hover_["reading:progress"];
+    float fraction = (!loading_ && page && pageScrollMax_ > 0.0f) ? std::clamp(pageScroll_ / pageScrollMax_, 0.0f, 1.0f) : 0.0f;
+    approach(progress, fraction, 18.0f, dt_);
     if (loading_) {
+        progress = 0.0f;
         float segment = width * 0.32f;
         float phase = std::fmod(static_cast<float>(time_) * 0.9f, 1.0f);
         float start = position.x - segment + (width + segment) * phase;
@@ -495,6 +593,10 @@ void App::drawToolbar(bool compact) {
             list->AddRectFilled(ImVec2(left, position.y), ImVec2(right, position.y + thickness),
                                 packColor(palette().secondary), thickness * 0.5f);
         }
+    } else if (progress > 0.002f) {
+        list->AddRectFilledMultiColor(position, ImVec2(position.x + width * progress, position.y + thickness),
+                                      packColor(palette().primary), packColor(palette().secondary),
+                                      packColor(palette().secondary), packColor(palette().primary));
     }
     ImGui::Dummy(ImVec2(width, thickness + 2.0f));
 

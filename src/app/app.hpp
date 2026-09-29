@@ -111,6 +111,12 @@ struct EditorState {
     std::string securityNote;
 };
 
+struct OutlineItem {
+    int level = 1;
+    std::string text;
+    float y = 0.0f;
+};
+
 struct PaletteItem {
     std::string label;
     std::string hint;
@@ -160,6 +166,8 @@ private:
     void drawToolbar(bool compact);
     void drawTabBar();
     void drawFindBar();
+    void drawAddressChip(ImVec2 min, ImVec2 max, bool typing);
+    void drawTabIdentity(ImDrawList* list, int index, ImVec2 center, float radius);
     void drawStatusBar();
     void drawPalette();
     std::vector<PaletteItem> buildPaletteItems();
@@ -167,7 +175,17 @@ private:
     void drawPage();
     void drawPageContent();
     void drawDocument(const Document& document, bool interactive, const std::string& base);
-    void drawWords(const Block& block, float scale, const ImVec4* tint, bool interactive, const std::string& base);
+    void drawWords(const std::vector<Span>& spans, float scale, const ImVec4* tint, bool interactive,
+                   const std::string& base);
+    void drawTable(const Document& document, std::size_t begin, std::size_t end, bool interactive,
+                   const std::string& base);
+    void drawImage(const Block& block, bool interactive, const std::string& base);
+    void drawListMarker(const Block& block, ImVec2 origin, float gutter, float unit);
+    void drawQuoteBars(int depth, float left, float top, float bottom, float unit);
+    void drawOutline(float width);
+    void drawScrollTools();
+    void applyScrollTarget();
+    void followAnchor(const std::string& anchor);
     void drawBinary();
     void drawError();
     void drawLoading();
@@ -317,6 +335,15 @@ private:
     float pageFade_ = 1.0f;
     int matches_ = 0;
     int matchesShown_ = 0;
+    std::vector<OutlineItem> outline_;
+    std::vector<OutlineItem> outlineNext_;
+    std::map<std::string, float> anchors_;
+    std::map<std::string, float> anchorsNext_;
+    std::string outlineUrl_;
+    float rightInset_ = 0.0f;
+    float scrollTarget_ = -1.0f;
+    float pageScroll_ = 0.0f;
+    float pageScrollMax_ = 0.0f;
     int viewKey_ = -1;
     std::string pageTitle_;
 

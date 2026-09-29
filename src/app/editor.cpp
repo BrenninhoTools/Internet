@@ -316,8 +316,17 @@ void App::drawEditorHeader(bool compact) {
             {"Text", "<p>Write something here.</p>\n"},
             {"Link", "<a href=\"page.html\">link text</a>"},
             {"List", "<ul>\n<li>First item</li>\n<li>Second item</li>\n</ul>\n"},
+            {"Steps", "<ol>\n<li>First step</li>\n<li>Second step</li>\n</ol>\n"},
+            {"Quote", "<blockquote>\nA quote goes here.\n</blockquote>\n"},
+            {"Table",
+             "<table>\n<tr><th>Name</th><th>Value</th></tr>\n<tr><td>One</td><td>1</td></tr>\n"
+             "<tr><td>Two</td><td>2</td></tr>\n</table>\n"},
+            {"Image", "<img src=\"picture.png\" alt=\"Describe the image\">\n"},
             {"Rule", "<hr>\n"},
             {"Bold", "<b>bold text</b>"},
+            {"Italic", "<i>italic text</i>"},
+            {"Mark", "<mark>highlighted text</mark>"},
+            {"Inline", "<code>code</code>"},
             {"Code", "<pre>code goes here</pre>\n"},
         };
         float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;

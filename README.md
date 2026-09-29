@@ -7,7 +7,7 @@ A custom Internet written in C++17 that runs on Windows, macOS, Linux, Android a
 - **Registry**: maps node names to addresses (like DNS). Entries expire after 180 seconds unless refreshed, and nodes unregister themselves when they stop.
 - **Node**: serves a directory of files under a name, with content types, generated directory listings and path-traversal protection.
 - **Client**: resolves `internet://name/path` through the registry and fetches it from the node.
-- **Internet app**: a graphical browser that can also run a registry and host sites. It renders HTML (headings, paragraphs, lists, links, rules, preformatted text), shows plain text, and saves binary files.
+- **Internet app**: a graphical browser that can also run a registry and host sites. It renders HTML (headings, paragraphs, bold and italic text, inline code, bulleted and numbered lists, quotes, tables, images, links, rules, preformatted text), shows plain text, and saves binary files.
 - **`internet` command**: the same features for the terminal.
 - **`internet-server`**: a headless server that hosts every folder of a directory as a site, runs a registry and exposes a JSON API.
 - **Security**: an antivirus engine, quarantine and firewall built into the app, the command line and the server.
@@ -70,7 +70,9 @@ The window icon is rendered from the same code at startup.
 Start `internet-app`. An animated intro plays (click or press any key to skip), then the home screen opens. Press **Quick start** to run a registry, host the sample site and open `internet://home/`.
 
 - **Home screen**: an animated hero, a search box, action cards (Quick start, Host a site, Start or stop a registry, Edit site, Find a site), the sites that are online, your bookmarks and your recent pages.
-- **Tabs**: open as many as you like with the `+` button. Each tab has its own history, and the status bar shows how many are open.
+- **Tabs**: open as many as you like with the `+` button. Each tab has its own history, shows a colored avatar for its site (a spinner while it loads) and a tooltip with the full title and address, and the status bar shows how many are open.
+- **Address bar**: a badge shows which site you are on, turns into a search icon while you type, and gets a warning ring when the page is suspicious or blocked.
+- **Reading**: text sits in a centered column that is easy to read on wide windows, a progress line under the toolbar shows how far you have scrolled, a round button brings you back to the top, and the sidebar lists the headings under **On this page** so you can jump to any of them.
 - **Command palette** (`Ctrl+K`): type a few letters to run any action, open a site, a bookmark or a recent page, switch the theme, or jump to a file in the editor.
 - **Site editor**: see below.
 - **Registry**: the address the app uses, plus a button to run a registry on this computer.
@@ -85,12 +87,31 @@ Shortcuts: `Ctrl+K` command palette, `Ctrl+T` new tab, `Ctrl+W` close tab, `Ctrl
 
 Settings, bookmarks and history are stored in `settings.txt`, `bookmarks.txt` and `history.txt` inside the app's data folder (`%APPDATA%\Internet` on Windows, `~/Library/Application Support/Internet` on macOS, `~/.local/share/Internet` on Linux).
 
+## Page elements
+
+The app understands this HTML. Other tags are ignored, but the text inside them is still shown.
+
+| Element | Tags |
+| --- | --- |
+| Headings | `h1` to `h6` |
+| Text | `p`, `div`, `br`, `section`, `article`, `aside`, `figure` |
+| Emphasis | `b`, `strong` (bold), `i`, `em`, `cite` (italic), `u`, `ins` (underline), `s`, `del`, `strike` (strikethrough), `mark` (highlight) |
+| Code | `code`, `kbd`, `samp`, `tt` (inline), `pre` (block) |
+| Lists | `ul`, `ol` (with `start`), `li`, nested to any depth |
+| Quotes | `blockquote`, nested |
+| Tables | `table`, `caption`, `tr`, `th`, `td` |
+| Images | `img` is shown as a card with its description, and clicking it opens the file |
+| Links | `a href`, including `#name` links that scroll to an `id` or `a name` on the same page |
+| Rules | `hr` |
+
+Scripts and styles are never run. Bold and italic are drawn by the app itself, so they work with any font.
+
 ## The site editor
 
 Press the pencil button, `Ctrl+E`, or the **Edit site** card to edit the folder you host.
 
-- **Files**: a tree of the site folder. Create pages and folders from templates (blank page, article, landing page, link list), rename them, delete them. Names are checked so nothing can escape the site folder.
-- **Editor**: a monospaced text editor with snippet buttons (headings, text, links, lists, rule, bold, code) that insert at the cursor, and a **Page link** picker that lists the pages of your site.
+- **Files**: a tree of the site folder. Create pages and folders from templates (blank page, article, landing page, link list, documentation), rename them, delete them. Names are checked so nothing can escape the site folder.
+- **Editor**: a monospaced text editor with snippet buttons (headings, text, links, lists, numbered steps, quote, table, image, rule, bold, italic, mark, inline code, code block) that insert at the cursor, and a **Page link** picker that lists the pages of your site.
 - **Live preview**: shows the page as you type. Choose **Split**, **Edit** or **Preview**.
 - **Save** with `Ctrl+S`. Unsaved files are marked in the tree and in the tab title, and switching files asks before discarding changes. If the saved page is open in a tab it reloads.
 - **Publish** starts hosting (and a registry when none is reachable) and opens the live site.

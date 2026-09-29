@@ -343,6 +343,26 @@ void drawIcon(ImDrawList* list, Icon icon, ImVec2 c, float s, ImU32 color) {
                 list->AddLine(offset(c, side * s * 0.2f, s * 0.22f), offset(c, side * s * 0.42f, s * 0.36f), color, thickness);
             }
             break;
+        case Icon::Image:
+            list->AddRect(offset(c, -s * 0.44f, -s * 0.34f), offset(c, s * 0.44f, s * 0.34f), color, s * 0.08f,
+                          ImDrawFlags_None, thickness);
+            list->AddCircleFilled(offset(c, -s * 0.2f, -s * 0.12f), s * 0.08f, color);
+            list->AddLine(offset(c, -s * 0.44f, s * 0.24f), offset(c, -s * 0.1f, -s * 0.02f), color, thickness);
+            list->AddLine(offset(c, -s * 0.1f, -s * 0.02f), offset(c, s * 0.12f, s * 0.2f), color, thickness);
+            list->AddLine(offset(c, s * 0.12f, s * 0.2f), offset(c, s * 0.2f, s * 0.12f), color, thickness);
+            list->AddLine(offset(c, s * 0.2f, s * 0.12f), offset(c, s * 0.44f, s * 0.3f), color, thickness);
+            break;
+        case Icon::ArrowUp:
+            list->AddLine(offset(c, 0, s * 0.36f), offset(c, 0, -s * 0.34f), color, thickness * 1.2f);
+            list->AddLine(offset(c, -s * 0.3f, -s * 0.06f), offset(c, 0, -s * 0.36f), color, thickness * 1.2f);
+            list->AddLine(offset(c, s * 0.3f, -s * 0.06f), offset(c, 0, -s * 0.36f), color, thickness * 1.2f);
+            break;
+        case Icon::List:
+            for (float row : {-0.3f, 0.0f, 0.3f}) {
+                list->AddCircleFilled(offset(c, -s * 0.34f, s * row), s * 0.06f, color);
+                list->AddLine(offset(c, -s * 0.16f, s * row), offset(c, s * 0.42f, s * row), color, thickness);
+            }
+            break;
     }
 }
 

@@ -37,7 +37,10 @@ enum class Icon {
     Warning,
     Check,
     Bug,
-    External
+    External,
+    Image,
+    ArrowUp,
+    List
 };
 
 float clamp01(float value);

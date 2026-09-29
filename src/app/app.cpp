@@ -69,10 +69,20 @@ void ensureSampleSite(const fs::path& root) {
     if (!fs::exists(root / "about.html")) {
         writeFile(root / "about.html",
                   "<!DOCTYPE html>\n<html>\n<head><title>About</title></head>\n<body>\n"
-                  "<h1>About</h1>\n"
+                  "<a name=\"top\"></a>\n<h1>About</h1>\n"
                   "<p>Internet is a small network made of three parts: a <b>registry</b> that maps names to "
                   "addresses, <b>nodes</b> that serve files, and <b>clients</b> that browse them.</p>\n"
-                  "<p><a href=\"/\">Back to the start page</a></p>\n</body>\n</html>\n");
+                  "<h2 id=\"parts\">The three parts</h2>\n<table>\n"
+                  "<tr><th>Part</th><th>What it does</th><th>Command</th></tr>\n"
+                  "<tr><td>Registry</td><td>Maps names to addresses</td><td><code>internet registry</code></td></tr>\n"
+                  "<tr><td>Node</td><td>Serves a folder under a name</td><td><code>internet serve</code></td></tr>\n"
+                  "<tr><td>Client</td><td>Fetches <code>internet://</code> pages</td><td><code>internet get</code></td></tr>\n"
+                  "</table>\n<h2 id=\"steps\">Publish your own site</h2>\n<ol>\n"
+                  "<li>Press <b>Edit</b> and write a page</li>\n<li>Press <b>Publish</b> to host it</li>\n"
+                  "<li>Share the <i>internet://</i> link</li>\n</ol>\n"
+                  "<blockquote>Every page you open here is scanned before it is shown.</blockquote>\n<hr>\n"
+                  "<p><a href=\"/\">Back to the start page</a> or <a href=\"#top\">jump to the top</a>.</p>\n"
+                  "</body>\n</html>\n");
     }
     fs::create_directories(root / "files", error);
     if (!fs::exists(root / "files" / "hello.txt")) {
@@ -327,6 +337,7 @@ void App::switchTab(int index) {
     tabs_[static_cast<std::size_t>(activeTab_)] = captureTab();
     activeTab_ = index;
     restoreTab(std::move(tabs_[static_cast<std::size_t>(index)]));
+    scrollTarget_ = -1.0f;
     editor_ = false;
     securityView_ = false;
 }
@@ -494,9 +505,13 @@ void App::draw() {
         pressedLink_.clear();
     }
     if (!clickedLink_.empty()) {
-        editor_ = false;
-        securityView_ = false;
-        navigate(clickedLink_);
+        if (clickedLink_[0] == '#') {
+            followAnchor(clickedLink_);
+        } else {
+            editor_ = false;
+            securityView_ = false;
+            navigate(clickedLink_);
+        }
     }
 
     drawPalette();
@@ -595,6 +610,7 @@ void App::navigate(const std::string& url, bool record) {
     std::string target = trim(url);
     if (target.empty()) return;
     if (target.find("://") == std::string::npos) target = "internet://" + target;
+    scrollTarget_ = -1.0f;
 
     Endpoint endpoint;
     try {
@@ -692,6 +708,7 @@ void App::reload() {
 }
 
 void App::goHome() {
+    scrollTarget_ = -1.0f;
     home_ = true;
     editor_ = false;
     securityView_ = false;
