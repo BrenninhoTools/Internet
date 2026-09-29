@@ -28,6 +28,8 @@ public:
     void setFirewall(Firewall* firewall);
     void setAllowScripts(bool allow);
     void setLoopbackOnly(bool loopbackOnly);
+    void setDomain(const std::string& domain, bool https, std::uint16_t publicPort);
+    void setDisplayRegistry(const Endpoint& registry);
     void setLog(std::function<void(const std::string&)> log);
 
     void start(std::uint16_t port);
@@ -42,6 +44,7 @@ public:
 private:
     struct Request;
     struct Response;
+    struct Origin;
 
     void handle(Socket& socket, const std::string& peer);
     Response route(const Request& request, const std::string& peer);
@@ -49,6 +52,9 @@ private:
     Response serveSite(const Request& request, const std::string& name);
     Response nodeList();
     Response redirectTo(const Request& request);
+    Response askCertificate(const Request& request);
+    Origin origin() const;
+    bool siteFor(const std::string& host, std::string& name) const;
     bool hostAllowed(const std::string& host) const;
     Endpoint registry() const;
     void note(const std::string& text);
@@ -58,6 +64,10 @@ private:
     Security* security_ = nullptr;
     bool allowScripts_ = false;
     bool loopbackOnly_ = true;
+    std::string domain_;
+    bool https_ = false;
+    std::uint16_t publicPort_ = 0;
+    Endpoint displayRegistry_{"", 0};
     std::function<void(const std::string&)> log_;
     std::atomic<std::uint64_t> requests_{0};
     Server server_;

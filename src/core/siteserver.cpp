@@ -83,6 +83,18 @@ Json eventJson(const ThreatEvent& event) {
         .set("sha256", event.sha256);
 }
 
+std::string cleanDomain(std::string text) {
+    std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (text.rfind("*.", 0) == 0) text.erase(0, 2);
+    while (!text.empty() && text.front() == '.') text.erase(0, 1);
+    while (!text.empty() && text.back() == '.') text.pop_back();
+    if (text.empty() || text.size() > 253 || text.find("..") != std::string::npos) return std::string();
+    for (unsigned char c : text) {
+        if (!(std::isalnum(c) || c == '-' || c == '.')) return std::string();
+    }
+    return text;
+}
+
 std::string generateToken() {
     std::random_device device;
     std::string seed;
@@ -150,6 +162,8 @@ void SiteServer::start() {
     fs::create_directories(config_.dataDir, error);
     firewall_.setListener([this](const std::string& text) { log("[firewall] " + text); });
     registry_.setFirewall(&firewall_);
+    registry_.setPublicHost(config_.publicHost);
+    registry_.setLocalRegistrationOnly(!config_.openRegistry);
     if (config_.hostRegistry) registry_.start(config_.registryPort);
     if (config_.scanOnStart) scanNow();
 
@@ -159,7 +173,8 @@ void SiteServer::start() {
     api_->setExtension([this](const Message& request, const std::string& peer, Message& reply) {
         return handleApi(request, peer, reply);
     });
-    api_->start(0);
+    std::set<std::uint16_t> used;
+    if (!startOnPort(*api_, used)) throw std::runtime_error("no free port for the API in the node port range");
 
     if (config_.gatewayPort > 0) {
         gateway_ = std::make_unique<Gateway>();
@@ -168,6 +183,11 @@ void SiteServer::start() {
         gateway_->setFirewall(&firewall_);
         gateway_->setAllowScripts(config_.gatewayScripts);
         gateway_->setLoopbackOnly(config_.gatewayLocalOnly);
+        std::string domain = cleanDomain(config_.gatewayDomain);
+        if (domain.empty() && !config_.gatewayDomain.empty()) log("Ignoring the invalid gateway domain '" + config_.gatewayDomain + "'");
+        gateway_->setDomain(domain, config_.gatewayHttps, static_cast<std::uint16_t>(std::clamp(config_.gatewayPublicPort, 0, 65535)));
+        std::string shown = config_.publicHost.empty() ? domain : config_.publicHost;
+        if (config_.hostRegistry && !shown.empty()) gateway_->setDisplayRegistry(Endpoint{shown, registry_.port()});
         gateway_->setLog([this](const std::string& text) { log("[gateway] " + text); });
         try {
             gateway_->start(static_cast<std::uint16_t>(config_.gatewayPort));
@@ -226,6 +246,9 @@ void SiteServer::syncSites() {
         if (validName(name) && !(name == "api")) present.insert(name);
     }
     std::lock_guard<std::mutex> lock(mutex_);
+    for (auto it = unhosted_.begin(); it != unhosted_.end();) {
+        it = present.count(*it) == 0 ? unhosted_.erase(it) : std::next(it);
+    }
     for (auto it = nodes_.begin(); it != nodes_.end();) {
         if (present.count(it->first) == 0) {
             log("Stopped hosting internet://" + it->first + "/");
@@ -234,19 +257,46 @@ void SiteServer::syncSites() {
             ++it;
         }
     }
+    std::set<std::uint16_t> used;
+    if (api_) used.insert(api_->port());
+    for (const auto& item : nodes_) used.insert(item.second->port());
     for (const std::string& name : present) {
         if (nodes_.count(name) != 0) continue;
         try {
             auto node = std::make_unique<Node>(name, config_.sitesDir / name, registryEndpoint());
             node->setGuard([this](const fs::path& path) { return security_.guard(path); });
             node->setFirewall(&firewall_);
-            node->start(0);
+            if (!startOnPort(*node, used)) {
+                if (unhosted_.insert(name).second) log("Cannot host " + name + ": no free port in the node port range");
+                continue;
+            }
+            std::uint16_t port = node->port();
             nodes_[name] = std::move(node);
-            log("Hosting internet://" + name + "/");
+            unhosted_.erase(name);
+            log("Hosting internet://" + name + "/ on port " + std::to_string(port));
         } catch (const std::exception& problem) {
-            log("Cannot host " + name + ": " + problem.what());
+            if (unhosted_.insert(name).second) log("Cannot host " + name + ": " + problem.what());
         }
     }
+}
+
+bool SiteServer::startOnPort(Node& node, std::set<std::uint16_t>& used) {
+    if (config_.nodePortStart <= 0) {
+        node.start(0);
+        return true;
+    }
+    int last = std::min(65535, config_.nodePortStart + std::max(config_.nodePortCount, 1) - 1);
+    for (int port = config_.nodePortStart; port <= last; ++port) {
+        std::uint16_t candidate = static_cast<std::uint16_t>(port);
+        if (used.count(candidate) != 0) continue;
+        try {
+            node.start(candidate);
+            used.insert(candidate);
+            return true;
+        } catch (const std::exception&) {
+        }
+    }
+    return false;
 }
 
 void SiteServer::scanNow() {
@@ -348,7 +398,9 @@ Json SiteServer::status() {
         .set("blocked", counters.blocked)
         .set("rateLimited", stats.rateLimited)
         .set("bans", stats.bans)
-        .set("gateway", static_cast<std::uint64_t>(gatewayPort()));
+        .set("gateway", static_cast<std::uint64_t>(gatewayPort()))
+        .set("publicHost", config_.publicHost)
+        .set("domain", cleanDomain(config_.gatewayDomain));
 }
 
 bool SiteServer::handleApi(const Message& request, const std::string& peer, Message& reply) {

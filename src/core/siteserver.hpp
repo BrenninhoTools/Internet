@@ -9,6 +9,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -36,6 +37,13 @@ struct ServerConfig {
     bool gatewayLocalOnly = true;
     bool gatewayScripts = false;
     bool scanOnStart = true;
+    std::string publicHost;
+    bool openRegistry = true;
+    int nodePortStart = 0;
+    int nodePortCount = 100;
+    std::string gatewayDomain;
+    bool gatewayHttps = false;
+    int gatewayPublicPort = 0;
     std::function<void(const std::string&)> log;
 };
 
@@ -80,6 +88,7 @@ private:
     Message route(const std::string& method, const std::string& path, const std::string& body, const std::string& peer);
     void manage();
     void syncSites();
+    bool startOnPort(Node& node, std::set<std::uint16_t>& used);
     std::string loadToken();
 
     ServerConfig config_;
@@ -89,6 +98,7 @@ private:
     Registry registry_;
     std::mutex mutex_;
     std::map<std::string, std::unique_ptr<Node>> nodes_;
+    std::set<std::string> unhosted_;
     std::unique_ptr<Node> api_;
     std::unique_ptr<Gateway> gateway_;
     std::thread thread_;

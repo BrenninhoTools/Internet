@@ -24,6 +24,7 @@ private:
 };
 
 bool isInternetUrl(const std::string& url);
+Endpoint reachableEndpoint(const Endpoint& registry, Endpoint node);
 std::string resolveUrl(const std::string& base, const std::string& href);
 Endpoint resolveNode(const Endpoint& registry, const std::string& name);
 Page fetch(const Endpoint& registry, const std::string& url);

@@ -180,10 +180,57 @@ void testServer() {
     fs::remove_all(root);
 }
 
+void testPublicServer() {
+    fs::path root = fs::temp_directory_path() / "internet-tests-public-server";
+    fs::remove_all(root);
+    for (const char* name : {"one", "three", "two"}) writeFile(root / "sites" / name / "index.html", "<html><body>Hi</body></html>");
+
+    internet::ServerConfig config;
+    config.dataDir = root / "data";
+    config.sitesDir = root / "sites";
+    config.registryPort = 0;
+    config.rescanSeconds = 0;
+    config.scanOnStart = false;
+    config.gatewayPort = 0;
+    config.publicHost = "203.0.113.9";
+    config.openRegistry = false;
+    config.nodePortStart = 46210;
+    config.nodePortCount = 3;
+    internet::SiteServer server(config);
+    server.start();
+    internet::Endpoint registry = server.registryEndpoint();
+    check(waitForNodes(registry, {"api", "one", "three"}), "the API and two sites take the whole port range");
+
+    std::vector<internet::NodeInfo> nodes = internet::listNodes(registry);
+    bool inRange = !nodes.empty();
+    for (const internet::NodeInfo& node : nodes) inRange = inRange && node.endpoint.port >= 46210 && node.endpoint.port <= 46212;
+    check(inRange, "nodes use the configured port range");
+    check(fetchCode(registry, "internet://two/") == "404", "a site without a free port stays offline");
+
+    std::vector<internet::SiteInfo> sites = server.sites();
+    bool advertised = false;
+    bool offline = false;
+    for (const internet::SiteInfo& site : sites) {
+        if (site.name == "one") advertised = site.endpoint.rfind("203.0.113.9:", 0) == 0;
+        if (site.name == "two") offline = !site.online;
+    }
+    check(advertised, "the listing shows the public address");
+    check(offline, "the site without a port is reported offline");
+    check(parseJson(internet::fetch(registry, "internet://api/v1/status").body).stringOr("publicHost", "") == "203.0.113.9",
+          "the status reports the public host");
+
+    fs::remove_all(root / "sites" / "one");
+    check(waitForNodes(registry, {"two"}), "a freed port is reused by the waiting site");
+
+    server.stop();
+    fs::remove_all(root);
+}
+
 }
 
 int runServerTests() {
     testJson();
     testServer();
+    testPublicServer();
     return failures;
 }

@@ -47,6 +47,25 @@ jobs:
           name: internet-${{ matrix.name }}
           path: dist/Internet-*
 
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the server image
+        run: docker build -t internet-server .
+
+      - name: Start a public server
+        run: |
+          docker run -d --name internet -e INTERNET_DOMAIN=example.test -p 4000:4000 -p 4100-4199:4100-4199 -p 8080:8080 internet-server
+          for i in $(seq 1 30); do
+            if docker exec internet internet list --registry 127.0.0.1:4000 > /dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          docker exec internet internet list --registry 127.0.0.1:4000
+          curl --fail --silent --header "Host: home.example.test" http://127.0.0.1:8080/ | grep -qi "welcome"
+          docker logs internet
+
   android:
     runs-on: ubuntu-latest
     steps:

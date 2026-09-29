@@ -1,0 +1,13 @@
+.git
+.github
+.vs
+.vscode
+build
+build-*
+dist
+downloads
+android
+ios
+assets
+extension
+*.apk

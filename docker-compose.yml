@@ -1,0 +1,17 @@
+services:
+  internet:
+    build: .
+    restart: unless-stopped
+    environment:
+      INTERNET_PUBLIC_HOST: ${INTERNET_PUBLIC_HOST:-}
+      INTERNET_DOMAIN: ${INTERNET_DOMAIN:-}
+      INTERNET_HTTPS: "false"
+    ports:
+      - "4000:4000"
+      - "4100-4199:4100-4199"
+      - "80:8080"
+    volumes:
+      - internet-data:/srv/internet
+
+volumes:
+  internet-data:

@@ -135,7 +135,7 @@ std::string document(const std::string& title, const std::string& body) {
            escapeHtml(title) + "</title>" + pageStyle() + "</head><body><main>" + body + "</main></body></html>";
 }
 
-std::string rewriteLinks(const std::string& html, std::uint16_t port) {
+std::string rewriteLinks(const std::string& html, const std::string& scheme, const std::string& suffix, const std::string& portText) {
     std::string out;
     out.reserve(html.size());
     std::size_t index = 0;
@@ -152,7 +152,7 @@ std::string rewriteLinks(const std::string& html, std::uint16_t port) {
         std::string target = html.substr(found, end - found);
         std::string name, path;
         if (quoted && parseInternetTarget(target, name, path)) {
-            out += "http://" + name + kSuffix + ":" + std::to_string(port) + path;
+            out += scheme + "://" + name + suffix + portText + path;
         } else {
             out += target;
         }
@@ -182,6 +182,13 @@ bool isMarkup(const std::string& type) {
 }
 
 }
+
+struct Gateway::Origin {
+    std::string scheme;
+    std::string suffix;
+    std::string index;
+    std::string port;
+};
 
 struct Gateway::Request {
     std::string method;
@@ -243,6 +250,18 @@ void Gateway::setLoopbackOnly(bool loopbackOnly) {
     server_.setLoopbackOnly(loopbackOnly);
 }
 
+void Gateway::setDomain(const std::string& domain, bool https, std::uint16_t publicPort) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    domain_ = lowered(domain);
+    https_ = https;
+    publicPort_ = publicPort;
+}
+
+void Gateway::setDisplayRegistry(const Endpoint& registry) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    displayRegistry_ = registry;
+}
+
 void Gateway::setLog(std::function<void(const std::string&)> log) {
     std::lock_guard<std::mutex> lock(mutex_);
     log_ = std::move(log);
@@ -261,9 +280,23 @@ std::uint16_t Gateway::port() const { return server_.port(); }
 
 std::uint64_t Gateway::requests() const { return requests_; }
 
-std::string Gateway::indexUrl() const { return "http://localhost:" + std::to_string(port()) + "/"; }
+Gateway::Origin Gateway::origin() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (domain_.empty()) return Origin{"http", kSuffix, "localhost", ":" + std::to_string(server_.port())};
+    return Origin{https_ ? "https" : "http", "." + domain_, domain_, publicPort_ == 0 ? std::string() : ":" + std::to_string(publicPort_)};
+}
 
-std::string Gateway::urlFor(const std::string& internetUrl) const { return gatewayUrl(port(), internetUrl); }
+std::string Gateway::indexUrl() const {
+    Origin where = origin();
+    return where.scheme + "://" + where.index + where.port + "/";
+}
+
+std::string Gateway::urlFor(const std::string& internetUrl) const {
+    Origin where = origin();
+    std::string name, path;
+    if (!parseInternetTarget(internetUrl, name, path)) return where.scheme + "://" + where.index + where.port + "/";
+    return where.scheme + "://" + name + where.suffix + where.port + path;
+}
 
 Endpoint Gateway::registry() const {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -279,15 +312,38 @@ void Gateway::note(const std::string& text) {
     if (log) log(text);
 }
 
+bool Gateway::siteFor(const std::string& host, std::string& name) const {
+    if (siteName(host, name)) return true;
+    std::string domain;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        domain = domain_;
+    }
+    if (domain.empty()) return false;
+    std::string base = hostName(host);
+    std::string suffix = "." + domain;
+    if (base.size() <= suffix.size() || base.compare(base.size() - suffix.size(), suffix.size(), suffix) != 0) return false;
+    name = base.substr(0, base.size() - suffix.size());
+    return name != "www";
+}
+
 bool Gateway::hostAllowed(const std::string& host) const {
     bool restricted;
+    std::string domain;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         restricted = loopbackOnly_;
+        domain = domain_;
     }
-    if (!restricted) return true;
     std::string name = hostName(host);
     if (name == "localhost" || name == "127.0.0.1" || name == "[::1]") return true;
+    if (!domain.empty()) {
+        std::string suffix = "." + domain;
+        bool inside = name == domain || (name.size() > suffix.size() && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0);
+        std::string site;
+        return inside || siteName(host, site);
+    }
+    if (!restricted) return true;
     std::string site;
     return siteName(host, site);
 }
@@ -335,7 +391,6 @@ void Gateway::handle(Socket& socket, const std::string& peer) {
 }
 
 Gateway::Response Gateway::route(const Request& request, const std::string& peer) {
-    (void)peer;
     Response response;
     if (request.method != "GET" && request.method != "HEAD") {
         response.status = 405;
@@ -343,13 +398,16 @@ Gateway::Response Gateway::route(const Request& request, const std::string& peer
         response.body = document("Method not allowed", "<div class=\"card bad\"><h1>Method not allowed</h1><p>The gateway only reads pages.</p></div>");
         return response;
     }
+    std::string requested = hostName(request.host);
+    bool localHost = requested == "localhost" || requested == "127.0.0.1" || requested == "[::1]";
+    if (request.path == "/_ask" && localHost && (peer == "127.0.0.1" || peer == "::1")) return askCertificate(request);
     if (!hostAllowed(request.host)) {
         response.status = 421;
-        response.body = document("Wrong host", "<div class=\"card bad\"><h1>Wrong host</h1><p>Open the gateway as <code>http://localhost</code>.</p></div>");
+        response.body = document("Wrong host", "<div class=\"card bad\"><h1>Wrong host</h1><p>Open the gateway with its own address, for example <code>" + escapeHtml(indexUrl()) + "</code>.</p></div>");
         return response;
     }
     std::string name;
-    if (siteName(request.host, name)) {
+    if (siteFor(request.host, name)) {
         if (!validName(name)) {
             response.status = 400;
             response.body = document("Invalid site", "<div class=\"card bad\"><h1>Invalid site name</h1><p>Site names use lowercase letters, digits, dashes and dots.</p></div>");
@@ -366,13 +424,43 @@ Gateway::Response Gateway::route(const Request& request, const std::string& peer
     return serveIndex(request);
 }
 
+Gateway::Response Gateway::askCertificate(const Request& request) {
+    Response response;
+    response.type = "text/plain; charset=utf-8";
+    std::string domain;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        domain = domain_;
+    }
+    std::string asked = lowered(queryValue(request.query, "domain"));
+    bool allowed = false;
+    if (!domain.empty() && !asked.empty()) {
+        std::string suffix = "." + domain;
+        if (asked == domain || asked == "www" + suffix) {
+            allowed = true;
+        } else if (asked.size() > suffix.size() && asked.compare(asked.size() - suffix.size(), suffix.size(), suffix) == 0) {
+            std::string name = asked.substr(0, asked.size() - suffix.size());
+            if (validName(name)) {
+                try {
+                    resolveNode(registry(), name);
+                    allowed = true;
+                } catch (const std::exception&) {
+                }
+            }
+        }
+    }
+    response.status = allowed ? 200 : 404;
+    response.body = allowed ? "ok" : "unknown domain";
+    return response;
+}
+
 Gateway::Response Gateway::nodeList() {
     Response response;
     response.type = "application/json";
     Json list = Json::array();
     try {
         for (const NodeInfo& node : listNodes(registry())) {
-            list.push(Json::object().set("name", node.name).set("url", gatewayUrl(port(), kScheme + node.name + "/")));
+            list.push(Json::object().set("name", node.name).set("url", urlFor(kScheme + node.name + "/")));
         }
     } catch (const std::exception&) {
     }
@@ -392,7 +480,7 @@ Gateway::Response Gateway::redirectTo(const Request& request) {
     }
     Response response;
     response.status = 302;
-    response.headers["Location"] = gatewayUrl(port(), kScheme + name + path);
+    response.headers["Location"] = urlFor(kScheme + name + path);
     response.body = document("Redirect", "<p><a href=\"" + escapeHtml(response.headers["Location"]) + "\">Continue</a></p>");
     return response;
 }
@@ -406,14 +494,18 @@ Gateway::Response Gateway::serveIndex(const Request& request) {
     body += "<form action=\"/go\" method=\"get\"><input name=\"url\" placeholder=\"internet://home/\" autofocus autocomplete=\"off\"><button type=\"submit\">Open</button></form>";
 
     Endpoint endpoint = registry();
+    Endpoint shown = endpoint;
     bool guarded;
     bool scripts;
+    bool publicSite;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         guarded = security_ != nullptr && security_->settings().realtime;
         scripts = allowScripts_;
+        publicSite = !domain_.empty();
+        if (displayRegistry_.port != 0) shown = displayRegistry_;
     }
-    body += "<p><span class=\"pill\">Registry " + escapeHtml(formatEndpoint(endpoint)) + "</span>";
+    body += "<p><span class=\"pill\">Registry " + escapeHtml(formatEndpoint(shown)) + "</span>";
     body += std::string("<span class=\"pill\">") + (guarded ? "Protection on" : "Protection off") + "</span>";
     body += std::string("<span class=\"pill\">") + (scripts ? "Scripts allowed" : "Scripts blocked") + "</span></p>";
 
@@ -425,7 +517,8 @@ Gateway::Response Gateway::serveIndex(const Request& request) {
         } else {
             body += "<ul>";
             for (const NodeInfo& node : nodes) {
-                body += "<li><a href=\"" + escapeHtml(gatewayUrl(port(), kScheme + node.name + "/")) + "\"><strong>" + escapeHtml(node.name) +
+                if (publicSite && node.name == "api") continue;
+                body += "<li><a href=\"" + escapeHtml(urlFor(kScheme + node.name + "/")) + "\"><strong>" + escapeHtml(node.name) +
                         "</strong><span>internet://" + escapeHtml(node.name) + "/</span></a></li>";
             }
             body += "</ul>";
@@ -494,7 +587,8 @@ Gateway::Response Gateway::serveSite(const Request& request, const std::string& 
     response.type = type;
     response.body = std::move(page.body);
     if (type.rfind("text/html", 0) == 0 || type.rfind("application/xhtml", 0) == 0) {
-        response.body = rewriteLinks(response.body, port());
+        Origin where = origin();
+        response.body = rewriteLinks(response.body, where.scheme, where.suffix, where.port);
         if (!banner.empty()) response.body = injectBanner(response.body, banner);
     }
     if (markup && !scripts) {

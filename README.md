@@ -148,12 +148,64 @@ This is a compact engine written for this project. It finds what its rules and h
 
 ## The server
 
-    internet-server init [--dir D]
+    internet-server init [--dir D] [--public] [--public-host H] [--domain D] [--https]
     internet-server run [--dir D]
     internet-server scan [--dir D]
     internet-server token [--dir D]
 
 `init` creates the directory with `sites/`, `data/` and `server.conf`. `run` starts a registry, a browser gateway (`gateway_port`, default 8080), an API node and one node per folder under `sites/` (folders added or removed while it runs are picked up), scans everything on start and periodically afterwards, and logs to `data/server.log`. The API token is in `data/token.txt`.
+
+## Running a server online
+
+By default the server is meant for your own computer or network. To serve visitors from the whole internet, run it on a machine with a public address (a VPS, or a home server with forwarded ports) and create its settings with `--public`:
+
+    internet-server init --dir /var/lib/internet --public --domain example.com
+
+`--public` opens the browser gateway to the network, closes the registry so that only the server itself can register sites, and gives the sites a fixed port range. `--domain` is the name browsers use, `--public-host` is the address the app and command line use when it is not the same (an IP address, for example), and `--https` makes the addresses shown by the gateway start with `https://`.
+
+### What visitors use
+
+- **Internet app and command line**: the server's registry, for example `internet get internet://home/ --registry example.com:4000`, or `example.com:4000` in the Registry box of the app. Sites registered on the server are announced with the public address, and a registry that answers with a loopback address is understood as its own address.
+- **Ordinary browsers**: `http://example.com/` shows the index and every site is at `http://NAME.example.com/`. This needs a wildcard DNS record, `*.example.com`, pointing at the server. Without a domain of your own, use a wildcard address service such as sslip.io: `--domain 203-0-113-9.sslip.io` for a server at 203.0.113.9.
+
+### Ports to open
+
+| Port | Use |
+| --- | --- |
+| `4000` | registry (`registry_port`) |
+| `4100` to `4199` | the sites and the API (`node_port_start`, `node_port_count`), one port each |
+| `8080` | web gateway (`gateway_port`), or `80` and `443` behind a proxy |
+
+### With Docker
+
+    docker compose up -d --build
+
+Set `INTERNET_DOMAIN` and `INTERNET_PUBLIC_HOST` in a `.env` file next to `docker-compose.yml`. The settings and sites live in the `internet-data` volume, and the compose file publishes the gateway on port 80. For HTTPS use `docker compose -f docker-compose.https.yml up -d --build` with `INTERNET_DOMAIN` set: a Caddy container gets a certificate for `example.com` and for every site that exists, asking the gateway (`/_ask`, answered only to the proxy) before it requests one. Let's Encrypt limits how many certificates one domain can get per week, so a server with many sites should use a wildcard certificate instead.
+
+### Without Docker
+
+    cmake -S . -B build -DINTERNET_BUILD_APP=OFF && cmake --build build
+    sudo cmake --install build
+    sudo useradd --system --create-home --home-dir /var/lib/internet internet
+    sudo -u internet internet-server init --dir /var/lib/internet --public --domain example.com
+    sudo cp deploy/internet-server.service /etc/systemd/system/
+    sudo systemctl enable --now internet-server
+
+### Settings for a public server
+
+These keys go in `server.conf`:
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `public_host` | empty | address announced for the sites, an IP address or a name |
+| `open_registry` | `true` | `false` lets only this server register sites |
+| `node_port_start`, `node_port_count` | `0`, `100` | fixed port range for the sites and the API (`0` picks free ports) |
+| `gateway_local_only` | `true` | `false` lets the gateway listen on every interface |
+| `gateway_domain` | empty | domain that browsers use, sites are `NAME.domain` |
+| `gateway_https` | `false` | addresses shown by the gateway use `https://` |
+| `gateway_public_port` | `0` | port shown in the addresses, `0` for the default one |
+
+Every page still passes through Internet Security before it is served, uploads are scanned, and the firewall limits requests and bans abusive hosts. Keep `data/token.txt` secret, because it controls the API. Requests that arrive through a proxy on the same machine look like they come from the machine itself, which the firewall does not limit, so put the rate limits in the proxy.
 
 ## The API
 

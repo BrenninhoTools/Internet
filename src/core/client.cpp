@@ -66,6 +66,8 @@ Message request(const Endpoint& endpoint, const Message& message, const std::str
     }
 }
 
+bool loopbackHost(const std::string& host) { return host == "127.0.0.1" || host == "::1" || host == "localhost"; }
+
 Endpoint resolve(const Endpoint& registry, const std::string& name) {
     Message reply = request(registry, Message{{"RESOLVE", name}, {}}, "resolving '" + name + "'");
     unsigned int port = 0;
@@ -73,7 +75,7 @@ Endpoint resolve(const Endpoint& registry, const std::string& name) {
     const std::string& text = reply.fields[2];
     auto result = std::from_chars(text.data(), text.data() + text.size(), port);
     if (result.ec != std::errc() || port == 0 || port > 65535) throw FetchError("500", "malformed registry reply");
-    return Endpoint{reply.fields[1], static_cast<std::uint16_t>(port)};
+    return reachableEndpoint(registry, Endpoint{reply.fields[1], static_cast<std::uint16_t>(port)});
 }
 
 }
@@ -86,6 +88,11 @@ const std::string& FetchError::code() const { return code_; }
 Endpoint resolveNode(const Endpoint& registry, const std::string& name) { return resolve(registry, name); }
 
 bool isInternetUrl(const std::string& url) { return url.compare(0, kScheme.size(), kScheme) == 0; }
+
+Endpoint reachableEndpoint(const Endpoint& registry, Endpoint node) {
+    if (loopbackHost(node.host) && !loopbackHost(registry.host)) node.host = registry.host;
+    return node;
+}
 
 std::string resolveUrl(const std::string& base, const std::string& href) {
     if (href.find("://") != std::string::npos) return href;
@@ -133,7 +140,7 @@ std::vector<NodeInfo> listNodes(const Endpoint& registry) {
         std::string name, host;
         unsigned int port = 0;
         if (fields >> name >> host >> port && port > 0 && port <= 65535)
-            nodes.push_back(NodeInfo{name, Endpoint{host, static_cast<std::uint16_t>(port)}});
+            nodes.push_back(NodeInfo{name, reachableEndpoint(registry, Endpoint{host, static_cast<std::uint16_t>(port)})});
     }
     return nodes;
 }

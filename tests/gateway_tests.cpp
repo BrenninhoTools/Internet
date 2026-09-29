@@ -8,6 +8,7 @@
 #include <thread>
 
 #include "browser.hpp"
+#include "client.hpp"
 #include "gateway.hpp"
 #include "json.hpp"
 #include "node.hpp"
@@ -174,10 +175,119 @@ void testGateway() {
     fs::remove_all(root);
 }
 
+void testPublicRegistry() {
+    fs::path root = fs::temp_directory_path() / "internet-public-registry-test";
+    fs::remove_all(root);
+    writeFile(root / "home" / "index.html", "<html><body>Home</body></html>");
+
+    internet::Registry registry;
+    registry.setPublicHost("203.0.113.9");
+    registry.start(0);
+    internet::Endpoint endpoint{"127.0.0.1", registry.port()};
+    internet::Node home("home", root / "home", endpoint);
+    home.start(0);
+    for (int i = 0; i < 100 && !home.registered(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    std::vector<internet::NodeInfo> advertised = registry.snapshot();
+    check(advertised.size() == 1 && advertised[0].endpoint.host == "203.0.113.9" && advertised[0].endpoint.port == home.port(),
+          "the registry advertises the public address");
+    check(internet::resolveNode(endpoint, "home").host == "127.0.0.1", "local clients keep the local address");
+    std::vector<internet::NodeInfo> listed = internet::listNodes(endpoint);
+    check(listed.size() == 1 && listed[0].endpoint.host == "127.0.0.1", "local listings keep the local address");
+    check(contains(internet::fetch(endpoint, "internet://home/").body, "Home"), "a local client can still read the site");
+
+    internet::Message again = internet::exchange(endpoint, internet::Message{{"REGISTER", "home", std::to_string(home.port())}, {}});
+    check(!again.fields.empty() && again.fields[0] == "OK", "a heartbeat is accepted after the address was rewritten");
+
+    registry.setLocalRegistrationOnly(true);
+    internet::Message local = internet::exchange(endpoint, internet::Message{{"REGISTER", "extra", "4999"}, {}});
+    check(!local.fields.empty() && local.fields[0] == "OK", "the server itself can register when registration is closed");
+
+    check(internet::reachableEndpoint(internet::Endpoint{"registry.example", 4000}, internet::Endpoint{"127.0.0.1", 4100}).host == "registry.example",
+          "a loopback answer from a remote registry points at that registry");
+    check(internet::reachableEndpoint(internet::Endpoint{"127.0.0.1", 4000}, internet::Endpoint{"127.0.0.1", 4100}).host == "127.0.0.1",
+          "a local registry keeps loopback answers");
+    check(internet::reachableEndpoint(internet::Endpoint{"registry.example", 4000}, internet::Endpoint{"203.0.113.9", 4100}).host == "203.0.113.9",
+          "a public answer is left alone");
+
+    home.stop();
+    registry.stop();
+    fs::remove_all(root);
+}
+
+void testPublicGateway() {
+    fs::path root = fs::temp_directory_path() / "internet-public-gateway-test";
+    fs::remove_all(root);
+    writeFile(root / "home" / "index.html", "<html><body><a href=\"internet://other/\">go</a></body></html>");
+    writeFile(root / "other" / "index.html", "<html><body>Other</body></html>");
+
+    internet::Registry registry;
+    registry.setPublicHost("203.0.113.9");
+    registry.start(0);
+    internet::Endpoint endpoint{"127.0.0.1", registry.port()};
+    internet::Node home("home", root / "home", endpoint);
+    internet::Node other("other", root / "other", endpoint);
+    internet::Node api("api", root / "other", endpoint);
+    home.start(0);
+    other.start(0);
+    api.start(0);
+    for (int i = 0; i < 100 && !(home.registered() && other.registered() && api.registered()); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    internet::Security security(root / "security");
+    internet::Firewall firewall;
+    internet::Gateway gateway;
+    gateway.setRegistry(endpoint);
+    gateway.setSecurity(&security);
+    gateway.setFirewall(&firewall);
+    gateway.setLoopbackOnly(false);
+    gateway.setDomain("Example.Test", true, 0);
+    gateway.setDisplayRegistry(internet::Endpoint{"203.0.113.9", 4000});
+    gateway.start(0);
+    std::uint16_t port = gateway.port();
+    std::string suffix = ":" + std::to_string(port);
+
+    check(gateway.indexUrl() == "https://example.test/", "the index address uses the public domain");
+    check(gateway.urlFor("internet://home/a.html") == "https://home.example.test/a.html", "site addresses use the public domain");
+
+    HttpReply index = http(port, "GET", "example.test", "/");
+    check(index.status == 200 && contains(index.body, "https://home.example.test/") && contains(index.body, "203.0.113.9:4000"),
+          "the public index lists sites and the public registry");
+    check(!contains(index.body, "internet://api/"), "the API node is not listed publicly");
+
+    HttpReply page = http(port, "GET", "home.example.test", "/");
+    check(page.status == 200 && contains(page.body, "href=\"https://other.example.test/\""), "links use the public domain");
+    check(http(port, "GET", "HOME.Example.Test:8443", "/").status == 200, "host names are case blind and ignore the port");
+    HttpReply www = http(port, "GET", "www.example.test", "/");
+    check(www.status == 200 && contains(www.body, "Internet gateway"), "www shows the index");
+    check(http(port, "GET", "home.localhost" + suffix, "/").status == 200, "local names still work");
+    check(http(port, "GET", "ghost.example.test", "/").status == 404, "an unknown site is 404");
+    check(http(port, "GET", "evil.test", "/").status == 421, "other domains are refused");
+    check(http(port, "GET", "home.example.test.evil.test", "/").status == 421, "a look alike suffix is refused");
+    check(http(port, "GET", "127.0.0.1" + suffix, "/").status == 200, "the local address still shows the index");
+
+    check(http(port, "GET", "127.0.0.1" + suffix, "/_ask?domain=example.test").status == 200, "the base domain gets a certificate");
+    check(http(port, "GET", "127.0.0.1" + suffix, "/_ask?domain=home.example.test").status == 200, "a hosted site gets a certificate");
+    check(http(port, "GET", "127.0.0.1" + suffix, "/_ask?domain=www.example.test").status == 200, "www gets a certificate");
+    check(http(port, "GET", "127.0.0.1" + suffix, "/_ask?domain=ghost.example.test").status == 404, "an unknown site gets none");
+    check(http(port, "GET", "127.0.0.1" + suffix, "/_ask?domain=evil.test").status == 404, "a foreign domain gets none");
+    check(http(port, "GET", "127.0.0.1" + suffix, "/_ask").status == 404, "a missing domain gets none");
+    check(http(port, "GET", "example.test", "/_ask?domain=home.example.test").body != "ok", "the certificate check is not public");
+
+    gateway.stop();
+    api.stop();
+    other.stop();
+    home.stop();
+    registry.stop();
+    fs::remove_all(root);
+}
+
 }
 
 int runGatewayTests() {
     testHelpers();
     testGateway();
+    testPublicRegistry();
+    testPublicGateway();
     return failures;
 }

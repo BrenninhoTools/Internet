@@ -1,0 +1,16 @@
+{
+    on_demand_tls {
+        ask http://127.0.0.1:8080/_ask
+    }
+}
+
+http:// {
+    redir https://{host}{uri} permanent
+}
+
+https:// {
+    tls {
+        on_demand
+    }
+    reverse_proxy 127.0.0.1:8080
+}

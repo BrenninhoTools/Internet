@@ -33,6 +33,16 @@ bool isLocal(const std::string& peer) { return peer == "127.0.0.1" || peer == ":
 
 void Registry::setFirewall(Firewall* firewall) { firewall_ = firewall; }
 
+void Registry::setPublicHost(std::string host) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    publicHost_ = std::move(host);
+}
+
+void Registry::setLocalRegistrationOnly(bool enabled) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    localRegistrationOnly_ = enabled;
+}
+
 void Registry::start(std::uint16_t port) {
     server_.setFirewall(firewall_);
     server_.start(port, [this](Socket& socket, const std::string& peer) { handle(socket, peer); });
@@ -74,9 +84,9 @@ void Registry::handle(Socket& socket, const std::string& peer) {
     } else if (verb == "UNREGISTER") {
         reply = unregisterName(request, peer);
     } else if (verb == "RESOLVE") {
-        reply = resolveName(request);
+        reply = resolveName(request, peer);
     } else if (verb == "LIST") {
-        reply = listNames();
+        reply = listNames(peer);
     } else {
         if (firewall_) firewall_->violation(peer, "unknown request");
         reply = errorMessage("400");
@@ -95,19 +105,21 @@ Message Registry::registerName(const Message& request, const std::string& peer) 
     }
 
     std::lock_guard<std::mutex> lock(mutex_);
+    if (localRegistrationOnly_ && !isLocal(peer)) return errorMessage("403", "Registration is closed on this registry");
     expire();
     auto existing = entries_.find(name);
-    if (existing != entries_.end() && existing->second.endpoint.host != peer) return errorMessage("409");
+    if (existing != entries_.end() && existing->second.owner != peer) return errorMessage("409");
     if (existing == entries_.end()) {
         int owned = static_cast<int>(std::count_if(entries_.begin(), entries_.end(), [&](const auto& item) {
-            return item.second.endpoint.host == peer;
+            return item.second.owner == peer;
         }));
         if (owned >= kMaxNamesPerHost && !isLocal(peer)) {
             if (firewall_) firewall_->violation(peer, "too many names");
             return errorMessage("403", "Too many names for one host");
         }
     }
-    entries_[name] = Entry{Endpoint{peer, port}, std::chrono::steady_clock::now()};
+    std::string advertised = isLocal(peer) && !publicHost_.empty() ? publicHost_ : peer;
+    entries_[name] = Entry{Endpoint{advertised, port}, peer, std::chrono::steady_clock::now()};
     return okMessage();
 }
 
@@ -116,29 +128,32 @@ Message Registry::unregisterName(const Message& request, const std::string& peer
     if (request.fields.size() != 3 || !parsePort(request.fields[2], port)) return errorMessage("400");
 
     std::lock_guard<std::mutex> lock(mutex_);
+    if (localRegistrationOnly_ && !isLocal(peer)) return errorMessage("403", "Registration is closed on this registry");
     auto existing = entries_.find(request.fields[1]);
     if (existing == entries_.end()) return errorMessage("404");
-    if (existing->second.endpoint.host != peer || existing->second.endpoint.port != port)
+    if (existing->second.owner != peer || existing->second.endpoint.port != port)
         return errorMessage("409");
     entries_.erase(existing);
     return okMessage();
 }
 
-Message Registry::resolveName(const Message& request) {
+Message Registry::resolveName(const Message& request, const std::string& peer) {
     if (request.fields.size() != 2) return errorMessage("400");
     std::lock_guard<std::mutex> lock(mutex_);
     expire();
     auto found = entries_.find(request.fields[1]);
     if (found == entries_.end()) return errorMessage("404");
-    return okMessage({found->second.endpoint.host, std::to_string(found->second.endpoint.port)});
+    const std::string& host = isLocal(peer) ? found->second.owner : found->second.endpoint.host;
+    return okMessage({host, std::to_string(found->second.endpoint.port)});
 }
 
-Message Registry::listNames() {
+Message Registry::listNames(const std::string& peer) {
     std::lock_guard<std::mutex> lock(mutex_);
     expire();
     std::string body;
     for (const auto& [name, entry] : entries_) {
-        body += name + ' ' + entry.endpoint.host + ' ' + std::to_string(entry.endpoint.port) + '\n';
+        const std::string& host = isLocal(peer) ? entry.owner : entry.endpoint.host;
+        body += name + ' ' + host + ' ' + std::to_string(entry.endpoint.port) + '\n';
     }
     return okMessage({}, std::move(body));
 }

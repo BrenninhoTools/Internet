@@ -1,0 +1,19 @@
+[Unit]
+Description=Internet server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=internet
+Group=internet
+ExecStart=/usr/local/bin/internet-server run --dir /var/lib/internet
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/internet
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,29 @@
+services:
+  internet:
+    build: .
+    restart: unless-stopped
+    environment:
+      INTERNET_PUBLIC_HOST: ${INTERNET_PUBLIC_HOST:-}
+      INTERNET_DOMAIN: ${INTERNET_DOMAIN:?set INTERNET_DOMAIN to the domain that points at this machine}
+      INTERNET_HTTPS: "true"
+    ports:
+      - "4000:4000"
+      - "4100-4199:4100-4199"
+      - "80:80"
+      - "443:443"
+    volumes:
+      - internet-data:/srv/internet
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    network_mode: service:internet
+    depends_on:
+      - internet
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+
+volumes:
+  internet-data:
+  caddy-data:
