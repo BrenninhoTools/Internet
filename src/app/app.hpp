@@ -200,6 +200,14 @@ private:
     void toggleLinkRegistration();
     void pollBrowser();
     void copyGatewayAddress();
+    std::string shareTarget() const;
+    std::string webBase() const;
+    std::string webLink(const std::string& internetUrl) const;
+    std::string fromWebLink(const std::string& address);
+    void copyWebLink();
+    void copyInternetLink();
+    void discoverWeb();
+    void drawWebLink(float width);
 
     void drawHome();
     void drawHero(float width, bool compact);
@@ -395,6 +403,11 @@ private:
     std::shared_ptr<Job<PageResult>> pageJob_;
     std::shared_ptr<Job<NodeListResult>> nodesJob_;
     std::vector<NodeInfo> nodes_;
+    std::shared_ptr<Job<std::string>> webJob_;
+    std::string discoveredWeb_;
+    std::string webRegistry_;
+    double webChecked_ = -1000.0;
+    char webBuffer_[256];
     std::string nodesMessage_;
     double lastRefresh_ = -100.0;
 

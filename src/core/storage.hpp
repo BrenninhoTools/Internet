@@ -17,6 +17,7 @@ struct Settings {
     bool animations = true;
     float zoom = 1.0f;
     bool browserScripts = false;
+    std::string webBase;
 };
 
 std::filesystem::path userDataDirectory();

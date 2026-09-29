@@ -15,6 +15,9 @@ namespace internet {
 
 std::string gatewayUrl(std::uint16_t port, const std::string& internetUrl);
 bool parseInternetTarget(const std::string& text, std::string& name, std::string& path);
+std::string normalizeWebBase(const std::string& text);
+std::string webUrlFor(const std::string& base, const std::string& internetUrl);
+std::string internetUrlFor(const std::string& base, const std::string& webUrl);
 
 class Gateway {
 public:

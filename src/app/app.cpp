@@ -34,6 +34,11 @@ std::string lowerCase(std::string text) {
     return text;
 }
 
+bool isWebAddress(const std::string& text) {
+    std::string head = lowerCase(text.substr(0, 8));
+    return head.rfind("http://", 0) == 0 || head.rfind("https://", 0) == 0;
+}
+
 void writeFile(const fs::path& path, const std::string& content) {
     std::ofstream file(path, std::ios::binary);
     file << content;
@@ -101,6 +106,7 @@ App::App(fs::path dataDirectory) : dataDir_(std::move(dataDirectory)) {
 
     settings_ = loadSettings(dataDir_ / "settings.txt");
     settings_.palette = std::clamp(settings_.palette, 0, paletteCount() - 1);
+    copyText(webBuffer_, sizeof webBuffer_, settings_.webBase);
     bookmarks_ = loadEntries(dataDir_ / "bookmarks.txt");
     recent_ = loadEntries(dataDir_ / "history.txt");
     applyTheme(settings_.palette);
@@ -250,20 +256,23 @@ void App::toggleBookmark() {
     settingsDirty_ = true;
 }
 
+std::string App::shareTarget() const {
+    if (!home_ && !currentUrl_.empty() && isInternetUrl(currentUrl_)) return currentUrl_;
+    if (node_) return "internet://" + node_->name() + "/";
+    return std::string();
+}
+
 void App::shareCurrent() {
-    std::string url;
-    if (!home_ && !currentUrl_.empty()) {
-        url = currentUrl_;
-    } else if (node_) {
-        url = "internet://" + node_->name() + "/";
-    }
+    std::string url = shareTarget();
     if (url.empty()) {
         toast("Open a page or host a site to share it");
         return;
     }
-    if (!platform::shareText(url)) {
-        ImGui::SetClipboardText(url.c_str());
-        toast("Link copied");
+    std::string web = webLink(url);
+    const std::string& text = web.empty() ? url : web;
+    if (!platform::shareText(text)) {
+        ImGui::SetClipboardText(text.c_str());
+        toast(web.empty() ? "Link copied" : "Web link copied");
     }
 }
 
@@ -568,6 +577,19 @@ void App::pollJobs() {
     }
     if (!nodesJob_ && ImGui::GetTime() - lastRefresh_ > 5.0) refreshNodes();
 
+    if (webRegistry_ != registryBuffer_) {
+        webRegistry_ = registryBuffer_;
+        discoveredWeb_.clear();
+        webJob_.reset();
+        webChecked_ = -1000.0;
+    }
+    if (webJob_ && webJob_->done) {
+        discoveredWeb_ = std::move(webJob_->result);
+        webJob_.reset();
+    }
+    bool hasApi = std::any_of(nodes_.begin(), nodes_.end(), [](const NodeInfo& info) { return info.name == "api"; });
+    if (!webJob_ && hasApi && ImGui::GetTime() - webChecked_ > 120.0) discoverWeb();
+
     if (!pendingNavigation_.empty()) {
         if (!node_) {
             pendingNavigation_.clear();
@@ -609,6 +631,19 @@ void App::refreshNodes() {
 void App::navigate(const std::string& url, bool record) {
     std::string target = trim(url);
     if (target.empty()) return;
+    if (isWebAddress(target)) {
+        std::string converted = fromWebLink(target);
+        if (converted.empty()) {
+            if (browserSupported() && openInDefaultBrowser(target)) {
+                toast("Opened in your browser", ToastKind::Success);
+            } else {
+                ImGui::SetClipboardText(target.c_str());
+                toast("Web address copied. Open it in a browser.");
+            }
+            return;
+        }
+        target = converted;
+    }
     if (target.find("://") == std::string::npos) target = "internet://" + target;
     scrollTarget_ = -1.0f;
 

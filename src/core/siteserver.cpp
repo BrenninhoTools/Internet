@@ -386,6 +386,11 @@ Json SiteServer::status() {
     std::vector<SiteInfo> list = sites();
     std::uint64_t online = 0;
     for (const SiteInfo& site : list) online += site.online ? 1 : 0;
+    std::string web;
+    if (gateway_ && gateway_->running() && !cleanDomain(config_.gatewayDomain).empty()) {
+        web = gateway_->indexUrl();
+        if (!web.empty() && web.back() == '/') web.pop_back();
+    }
     return Json::object()
         .set("service", "Internet API")
         .set("version", "1")
@@ -399,6 +404,7 @@ Json SiteServer::status() {
         .set("rateLimited", stats.rateLimited)
         .set("bans", stats.bans)
         .set("gateway", static_cast<std::uint64_t>(gatewayPort()))
+        .set("web", web)
         .set("publicHost", config_.publicHost)
         .set("domain", cleanDomain(config_.gatewayDomain));
 }

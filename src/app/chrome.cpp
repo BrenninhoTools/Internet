@@ -312,6 +312,8 @@ void App::drawSidebar() {
         }
     }
 
+    if (ImGui::CollapsingHeader("Web link")) drawWebLink(width);
+
     if (browserSupported() && ImGui::CollapsingHeader("Browser")) drawBrowserSidebar(width);
 
     if (ImGui::CollapsingHeader("Appearance")) drawAppearance();
@@ -682,6 +684,11 @@ std::vector<PaletteItem> App::buildPaletteItems() {
             }
         });
     add("Share the current link", "Send it to someone", Icon::Share, colors.primary, [this] { shareCurrent(); });
+    if (!shareTarget().empty()) {
+        add("Copy web link", webBase().empty() ? "No web address known yet" : "Opens in any browser", Icon::Copy, colors.primary,
+            [this] { copyWebLink(); });
+        add("Copy internet:// link", "For the Internet app", Icon::Copy, colors.secondary, [this] { copyInternetLink(); });
+    }
     if (browserSupported()) {
         add("Open in Chrome", browserTarget().empty() ? "The gateway home page" : "This page", Icon::External, ImVec4(0.26f, 0.52f, 0.96f, 1.0f),
             [this] { openInBrowser(browserTarget()); });

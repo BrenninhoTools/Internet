@@ -2,6 +2,7 @@
 #include <cmath>
 
 #include "app.hpp"
+#include "json.hpp"
 #include "ui.hpp"
 
 namespace internet {
@@ -70,6 +71,97 @@ void App::copyGatewayAddress() {
     std::string url = target.empty() ? gateway_->indexUrl() : gateway_->urlFor(target);
     ImGui::SetClipboardText(url.c_str());
     toast("Browser address copied", ToastKind::Success);
+}
+
+std::string App::webBase() const {
+    std::string manual = normalizeWebBase(settings_.webBase);
+    return manual.empty() ? discoveredWeb_ : manual;
+}
+
+std::string App::webLink(const std::string& internetUrl) const { return webUrlFor(webBase(), internetUrl); }
+
+std::string App::fromWebLink(const std::string& address) {
+    std::string converted = internetUrlFor(webBase(), address);
+    if (converted.empty() && gateway_ && gateway_->running())
+        converted = internetUrlFor("http://localhost:" + std::to_string(gateway_->port()), address);
+    return converted;
+}
+
+void App::copyWebLink() {
+    std::string url = shareTarget();
+    if (url.empty()) {
+        toast("Open a page or host a site first");
+        return;
+    }
+    std::string web = webLink(url);
+    if (web.empty()) {
+        toast("No web address is known for this server. Set one in the Web link section.", ToastKind::Warning);
+        return;
+    }
+    ImGui::SetClipboardText(web.c_str());
+    toast("Web link copied", ToastKind::Success);
+}
+
+void App::copyInternetLink() {
+    std::string url = shareTarget();
+    if (url.empty()) {
+        toast("Open a page or host a site first");
+        return;
+    }
+    ImGui::SetClipboardText(url.c_str());
+    toast("internet:// link copied", ToastKind::Success);
+}
+
+void App::discoverWeb() {
+    webChecked_ = ImGui::GetTime();
+    Endpoint endpoint;
+    try {
+        endpoint = registryEndpoint();
+    } catch (const std::exception&) {
+        return;
+    }
+    webJob_ = std::make_shared<Job<std::string>>();
+    auto job = webJob_;
+    std::thread([job, endpoint] {
+        std::string web;
+        try {
+            Page page = fetch(endpoint, "internet://api/v1/status");
+            Json json;
+            std::string error;
+            if (Json::parse(page.body, json, error)) web = normalizeWebBase(json.stringOr("web", ""));
+        } catch (const std::exception&) {
+        }
+        job->result = std::move(web);
+        job->done = true;
+    }).detach();
+}
+
+void App::drawWebLink(float width) {
+    ImGui::TextColored(kMuted, "Address browsers use for your server");
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::InputTextWithHint("##web", "https://example.com", webBuffer_, sizeof webBuffer_)) {
+        settings_.webBase = webBuffer_;
+        settingsDirty_ = true;
+    }
+    std::string manual = normalizeWebBase(settings_.webBase);
+    std::string active = webBase();
+    ImGui::PushTextWrapPos(0.0f);
+    if (!settings_.webBase.empty() && manual.empty()) {
+        ImGui::TextColored(kAlert, "That is not a web address. Use a domain such as example.com.");
+    } else if (active.empty()) {
+        ImGui::TextColored(kMuted, "Not set. A server with a web address is detected when you connect to it.");
+    } else {
+        ImGui::TextColored(kGood, "%s", manual.empty() ? "Detected from the server" : "Using your address");
+        ImGui::TextColored(kMuted, "%s", webUrlFor(active, "internet://name/page").c_str());
+    }
+    ImGui::PopTextWrapPos();
+    bool available = !shareTarget().empty();
+    ImGui::BeginDisabled(!available || active.empty());
+    if (ImGui::Button("Copy web link", ImVec2(width, 0))) copyWebLink();
+    ImGui::EndDisabled();
+    ImGui::BeginDisabled(!available);
+    if (ImGui::Button("Copy internet:// link", ImVec2(width, 0))) copyInternetLink();
+    ImGui::EndDisabled();
 }
 
 void App::toggleLinkRegistration() {

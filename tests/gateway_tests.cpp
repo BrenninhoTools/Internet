@@ -75,6 +75,29 @@ void testHelpers() {
     check(!internet::parseInternetTarget("", name, path), "reject an empty target");
     check(internet::gatewayUrl(8080, "internet://home/x.html") == "http://home.localhost:8080/x.html", "gateway url");
     check(internet::gatewayUrl(9, "nonsense name") == "http://localhost:9/", "gateway url falls back to the index");
+    check(internet::normalizeWebBase("example.com") == "https://example.com", "a bare domain becomes an https address");
+    check(internet::normalizeWebBase("  HTTP://Example.COM:8080/some/path/?x=1 ") == "http://example.com:8080", "the web address keeps only scheme, host and port");
+    check(internet::normalizeWebBase("http://localhost:8080") == "http://localhost:8080", "localhost is a valid web address");
+    check(internet::normalizeWebBase("").empty() && internet::normalizeWebBase("ftp://example.com").empty(), "empty and foreign schemes are refused");
+    check(internet::normalizeWebBase("203.0.113.9").empty() && internet::normalizeWebBase("https://10.0.0.1:8443").empty(), "IP addresses cannot carry site names");
+    check(internet::normalizeWebBase("bad host").empty() && internet::normalizeWebBase("a..b").empty() && internet::normalizeWebBase("example.com:99999").empty(),
+          "malformed web addresses are refused");
+
+    check(internet::webUrlFor("https://example.com", "internet://blog/a/b.html?x=1#top") == "https://blog.example.com/a/b.html?x=1#top", "a web link keeps path, query and fragment");
+    check(internet::webUrlFor("example.com", "internet://Blog/") == "https://blog.example.com/", "a web link uses a lowercase site name");
+    check(internet::webUrlFor("http://example.com:8080", "internet://blog/") == "http://blog.example.com:8080/", "a web link keeps the port");
+    check(internet::webUrlFor("", "internet://blog/").empty() && internet::webUrlFor("example.com", "not a site").empty(), "no web link without a base or a site");
+
+    check(internet::internetUrlFor("https://example.com", "https://blog.example.com/a.html#x") == "internet://blog/a.html#x", "a web link opens as an internet address");
+    check(internet::internetUrlFor("https://example.com", "http://BLOG.example.com") == "internet://blog/", "the scheme, case and a missing path are forgiven");
+    check(internet::internetUrlFor("http://example.com:8080", "http://blog.example.com:8080/x") == "internet://blog/x", "the port must match");
+    check(internet::internetUrlFor("https://example.com", "https://example.com/").empty(), "the index is not a site");
+    check(internet::internetUrlFor("https://example.com", "https://evil.com/").empty() &&
+              internet::internetUrlFor("https://example.com", "https://blog.example.com.evil.com/").empty() &&
+              internet::internetUrlFor("https://example.com", "internet://blog/").empty(),
+          "foreign addresses are not converted");
+    check(internet::internetUrlFor("http://example.com:8080", "http://blog.example.com/x").empty(), "a different port is another server");
+
     check(!internet::executablePath().empty(), "the program knows where it is");
     std::string chrome = internet::findChrome();
     check(chrome.empty() || fs::exists(chrome), "a found Chrome exists");

@@ -92,6 +92,7 @@ Settings loadSettings(const fs::path& file) {
             if (key == "intro") settings.intro = value == "1";
             if (key == "animations") settings.animations = value == "1";
             if (key == "browserscripts") settings.browserScripts = value == "1";
+            if (key == "web") settings.webBase = value;
             if (key == "zoom") settings.zoom = std::clamp(std::stof(value), 0.6f, 2.5f);
         } catch (const std::exception&) {
         }
@@ -106,6 +107,7 @@ void saveSettings(const fs::path& file, const Settings& settings) {
     stream << "animations=" << (settings.animations ? 1 : 0) << '\n';
     stream << "zoom=" << settings.zoom << '\n';
     stream << "browserscripts=" << (settings.browserScripts ? 1 : 0) << '\n';
+    stream << "web=" << clean(settings.webBase) << '\n';
 }
 
 }

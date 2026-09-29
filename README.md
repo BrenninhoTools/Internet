@@ -72,6 +72,7 @@ Start `internet-app`. An animated intro plays (click or press any key to skip), 
 - **Home screen**: an animated hero, a search box, action cards (Quick start, Host a site, Start or stop a registry, Edit site, Find a site), the sites that are online, your bookmarks and your recent pages.
 - **Tabs**: open as many as you like with the `+` button. Each tab has its own history, shows a colored avatar for its site (a spinner while it loads) and a tooltip with the full title and address, and the status bar shows how many are open.
 - **Address bar**: a badge shows which site you are on, turns into a search icon while you type, and gets a warning ring when the page is suspicious or blocked.
+- **Web links**: when the server you are connected to has a web address (see below), **Share** gives you a link such as `https://blog.example.com/page` that opens in any browser, on any device, even without the app. The address is detected from the server, or you can type it in the **Web link** section of the sidebar, which also has buttons to copy the web link or the `internet://` link. Pasting a web link of that server into the address bar, or clicking one in a page, opens it in the app. Any other web address opens in your default browser.
 - **Reading**: text sits in a centered column that is easy to read on wide windows, a progress line under the toolbar shows how far you have scrolled, a round button brings you back to the top, and the sidebar lists the headings under **On this page** so you can jump to any of them.
 - **Command palette** (`Ctrl+K`): type a few letters to run any action, open a site, a bookmark or a recent page, switch the theme, or jump to a file in the editor.
 - **Site editor**: see below.
@@ -165,7 +166,7 @@ By default the server is meant for your own computer or network. To serve visito
 
 ### What visitors use
 
-- **Internet app and command line**: the server's registry, for example `internet get internet://home/ --registry example.com:4000`, or `example.com:4000` in the Registry box of the app. Sites registered on the server are announced with the public address, and a registry that answers with a loopback address is understood as its own address.
+- **Internet app and command line**: the server's registry, for example `internet get internet://home/ --registry example.com:4000`, or `example.com:4000` in the Registry box of the app. Sites registered on the server are announced with the public address, and a registry that answers with a loopback address is understood as its own address. The public `GET /v1/status` also reports the server's web address (`web`, for example `https://example.com`), which is how the app knows to offer web links.
 - **Ordinary browsers**: `http://example.com/` shows the index and every site is at `http://NAME.example.com/`. This needs a wildcard DNS record, `*.example.com`, pointing at the server. Without a domain of your own, use a wildcard address service such as sslip.io: `--domain 203-0-113-9.sslip.io` for a server at 203.0.113.9.
 
 ### Ports to open

@@ -191,7 +191,10 @@ void testPublicServer() {
     config.registryPort = 0;
     config.rescanSeconds = 0;
     config.scanOnStart = false;
-    config.gatewayPort = 0;
+    config.gatewayPort = 46299;
+    config.gatewayLocalOnly = false;
+    config.gatewayDomain = "Example.Test";
+    config.gatewayHttps = true;
     config.publicHost = "203.0.113.9";
     config.openRegistry = false;
     config.nodePortStart = 46210;
@@ -216,8 +219,9 @@ void testPublicServer() {
     }
     check(advertised, "the listing shows the public address");
     check(offline, "the site without a port is reported offline");
-    check(parseJson(internet::fetch(registry, "internet://api/v1/status").body).stringOr("publicHost", "") == "203.0.113.9",
-          "the status reports the public host");
+    internet::Json status = parseJson(internet::fetch(registry, "internet://api/v1/status").body);
+    check(status.stringOr("publicHost", "") == "203.0.113.9", "the status reports the public host");
+    check(status.stringOr("web", "") == "https://example.test", "the status reports the web address");
 
     fs::remove_all(root / "sites" / "one");
     check(waitForNodes(registry, {"two"}), "a freed port is reused by the waiting site");

@@ -225,6 +225,71 @@ bool parseInternetTarget(const std::string& text, std::string& name, std::string
     return true;
 }
 
+std::string normalizeWebBase(const std::string& text) {
+    std::string value = trimmed(text);
+    std::string scheme = "https";
+    std::size_t marker = value.find("://");
+    if (marker != std::string::npos) {
+        scheme = lowered(value.substr(0, marker));
+        value.erase(0, marker + 3);
+    }
+    if (scheme != "http" && scheme != "https") return std::string();
+    std::size_t end = value.find_first_of("/?#");
+    if (end != std::string::npos) value.erase(end);
+    value = lowered(value);
+
+    std::string host = value;
+    std::string port;
+    std::size_t colon = value.rfind(':');
+    if (colon != std::string::npos) {
+        host = value.substr(0, colon);
+        port = value.substr(colon + 1);
+        if (port.empty() || port.size() > 5 || port.find_first_not_of("0123456789") != std::string::npos) return std::string();
+        int number = std::stoi(port);
+        if (number < 1 || number > 65535) return std::string();
+    }
+    if (host.empty() || host.size() > 253 || host.front() == '.' || host.back() == '.' || host.find("..") != std::string::npos)
+        return std::string();
+    bool numeric = true;
+    for (unsigned char c : host) {
+        if (!(std::isalnum(c) || c == '-' || c == '.')) return std::string();
+        if (!(std::isdigit(c) || c == '.')) numeric = false;
+    }
+    if (numeric) return std::string();
+    return scheme + "://" + host + (port.empty() ? std::string() : ":" + port);
+}
+
+std::string webUrlFor(const std::string& base, const std::string& internetUrl) {
+    std::string normal = normalizeWebBase(base);
+    std::string name, path;
+    if (normal.empty() || !parseInternetTarget(internetUrl, name, path)) return std::string();
+    std::string trimmedUrl = trimmed(internetUrl);
+    std::size_t hash = trimmedUrl.find('#');
+    std::string fragment = hash == std::string::npos ? std::string() : trimmedUrl.substr(hash);
+    std::size_t marker = normal.find("://");
+    return normal.substr(0, marker) + "://" + name + "." + normal.substr(marker + 3) + path + fragment;
+}
+
+std::string internetUrlFor(const std::string& base, const std::string& webUrl) {
+    std::string normal = normalizeWebBase(base);
+    if (normal.empty()) return std::string();
+    std::string rest = trimmed(webUrl);
+    std::string head = lowered(rest.substr(0, 8));
+    std::size_t skip = head.rfind("https://", 0) == 0 ? 8 : (head.rfind("http://", 0) == 0 ? 7 : 0);
+    if (skip == 0) return std::string();
+    rest.erase(0, skip);
+    std::size_t end = rest.find_first_of("/?#");
+    std::string authority = lowered(end == std::string::npos ? rest : rest.substr(0, end));
+    std::string tail = end == std::string::npos ? std::string("/") : rest.substr(end);
+    if (tail[0] != '/') tail = "/" + tail;
+    std::string suffix = "." + normal.substr(normal.find("://") + 3);
+    if (authority.size() <= suffix.size() || authority.compare(authority.size() - suffix.size(), suffix.size(), suffix) != 0)
+        return std::string();
+    std::string name = authority.substr(0, authority.size() - suffix.size());
+    if (!validName(name)) return std::string();
+    return kScheme + name + tail;
+}
+
 Gateway::~Gateway() { stop(); }
 
 void Gateway::setRegistry(const Endpoint& registry) {
