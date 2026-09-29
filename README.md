@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/banner.png" alt="Internet: registry, sites and a browser in one app" width="100%">
+</p>
+
 # Internet
 
 A custom Internet written in C++17 that runs on Windows, macOS, Linux, Android and iOS.
@@ -64,6 +68,10 @@ The app icon is drawn by code in `src/app/icon.cpp`. To regenerate every icon fi
     build/internet-icons .
 
 The window icon is rendered from the same code at startup.
+
+The banner at the top of this file is drawn in `assets/banner.svg`. To export it to `assets/banner.png` with Chrome:
+
+    chrome --headless=new --hide-scrollbars --default-background-color=00000000 --screenshot=assets/banner.png --window-size=1280,320 --force-device-scale-factor=2 file:///path/to/assets/banner.svg
 
 ## The app
 

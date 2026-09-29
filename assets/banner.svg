@@ -1,0 +1,139 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" role="img" aria-labelledby="title desc">
+  <title id="title">Internet</title>
+  <desc id="desc">Your own network: a registry, sites and a browser, running on Windows, macOS, Linux, Android and iOS.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0a0f22"/>
+      <stop offset="1" stop-color="#111a3e"/>
+    </linearGradient>
+    <radialGradient id="glowBlue" cx="0.1" cy="0" r="0.6">
+      <stop offset="0" stop-color="#3b82f6" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#3b82f6" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowViolet" cx="0.96" cy="0.05" r="0.55">
+      <stop offset="0" stop-color="#8b5cf6" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#8b5cf6" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowCyan" cx="0.5" cy="1.15" r="0.5">
+      <stop offset="0" stop-color="#06b6d4" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#06b6d4" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="titleFill" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#bfdbfe"/>
+      <stop offset="0.55" stop-color="#67e8f9"/>
+      <stop offset="1" stop-color="#c4b5fd"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#06b6d4"/>
+    </linearGradient>
+    <radialGradient id="globeFill" cx="0.35" cy="0.3" r="0.9">
+      <stop offset="0" stop-color="#1e40af" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#0b1230" stop-opacity="0.2"/>
+    </radialGradient>
+    <clipPath id="frame">
+      <rect width="1280" height="320" rx="26"/>
+    </clipPath>
+    <clipPath id="window">
+      <rect x="770" y="42" width="450" height="236" rx="16"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#frame)">
+    <rect width="1280" height="320" fill="url(#bg)"/>
+    <rect width="1280" height="320" fill="url(#glowBlue)"/>
+    <rect width="1280" height="320" fill="url(#glowViolet)"/>
+    <rect width="1280" height="320" fill="url(#glowCyan)"/>
+
+    <g stroke="#60a5fa" stroke-opacity="0.16" stroke-width="1.2" fill="none">
+      <path d="M40 300 L120 250 L210 285 L300 240 L380 270"/>
+      <path d="M520 30 L600 70 L690 40 L740 90"/>
+    </g>
+    <g fill="#93c5fd" fill-opacity="0.35">
+      <circle cx="40" cy="300" r="3"/>
+      <circle cx="120" cy="250" r="3"/>
+      <circle cx="210" cy="285" r="3"/>
+      <circle cx="300" cy="240" r="3"/>
+      <circle cx="380" cy="270" r="3"/>
+      <circle cx="520" cy="30" r="3"/>
+      <circle cx="600" cy="70" r="3"/>
+      <circle cx="690" cy="40" r="3"/>
+      <circle cx="740" cy="90" r="3"/>
+    </g>
+
+    <g transform="translate(150 152)">
+      <circle r="92" fill="url(#globeFill)" stroke="#93c5fd" stroke-opacity="0.35" stroke-width="1.5"/>
+      <circle r="78" fill="none" stroke="#e0ecff" stroke-width="3.2"/>
+      <ellipse rx="30" ry="78" fill="none" stroke="#e0ecff" stroke-width="2.6"/>
+      <ellipse rx="58" ry="78" fill="none" stroke="#e0ecff" stroke-opacity="0.7" stroke-width="2"/>
+      <line x1="-78" y1="0" x2="78" y2="0" stroke="#e0ecff" stroke-width="2.6"/>
+      <path d="M-70 -38 Q0 -22 70 -38" fill="none" stroke="#e0ecff" stroke-opacity="0.7" stroke-width="2"/>
+      <path d="M-70 38 Q0 54 70 38" fill="none" stroke="#e0ecff" stroke-opacity="0.7" stroke-width="2"/>
+      <ellipse rx="112" ry="34" transform="rotate(-24)" fill="none" stroke="url(#accent)" stroke-width="2.4" stroke-opacity="0.9"/>
+      <circle cx="-102" cy="-14" r="8" fill="#06b6d4"/>
+      <circle cx="98" cy="-34" r="6.5" fill="#8b5cf6"/>
+      <circle cx="52" cy="30" r="5.5" fill="#3b82f6"/>
+    </g>
+
+    <text x="290" y="158" font-family="'Segoe UI', 'Helvetica Neue', Roboto, Arial, sans-serif" font-size="92" font-weight="800" fill="url(#titleFill)" letter-spacing="-2">Internet</text>
+    <text x="294" y="204" font-family="'Segoe UI', 'Helvetica Neue', Roboto, Arial, sans-serif" font-size="22" font-weight="500" fill="#b9c6ea">Registry, sites and a browser in one app.</text>
+
+    <g font-family="'Segoe UI', 'Helvetica Neue', Roboto, Arial, sans-serif" font-size="16" font-weight="600" text-anchor="middle" fill="#dbe6ff">
+      <rect x="294" y="234" width="96" height="34" rx="17" fill="#1e2b55" stroke="#3b82f6" stroke-opacity="0.55"/>
+      <text x="342" y="256">Windows</text>
+      <rect x="400" y="234" width="76" height="34" rx="17" fill="#1e2b55" stroke="#3b82f6" stroke-opacity="0.55"/>
+      <text x="438" y="256">macOS</text>
+      <rect x="486" y="234" width="72" height="34" rx="17" fill="#1e2b55" stroke="#3b82f6" stroke-opacity="0.55"/>
+      <text x="522" y="256">Linux</text>
+      <rect x="568" y="234" width="90" height="34" rx="17" fill="#1e2b55" stroke="#3b82f6" stroke-opacity="0.55"/>
+      <text x="613" y="256">Android</text>
+      <rect x="668" y="234" width="52" height="34" rx="17" fill="#1e2b55" stroke="#3b82f6" stroke-opacity="0.55"/>
+      <text x="694" y="256">iOS</text>
+    </g>
+
+    <g>
+      <rect x="770" y="42" width="450" height="236" rx="16" fill="#0c1230" stroke="#2f4380" stroke-width="1.5"/>
+      <g clip-path="url(#window)">
+        <rect x="770" y="42" width="450" height="40" fill="#111a3c"/>
+        <path d="M784 82 V60 Q784 52 792 52 H900 Q908 52 908 60 V82 Z" fill="#1d3a8a"/>
+        <rect x="784" y="52" width="124" height="3" rx="1.5" fill="#06b6d4"/>
+        <circle cx="802" cy="69" r="6" fill="#a3e635"/>
+        <text x="814" y="74" font-family="'Segoe UI', Roboto, Arial, sans-serif" font-size="13" font-weight="600" fill="#e8eeff">Welcome</text>
+        <rect x="918" y="56" width="22" height="22" rx="7" fill="#1a2550"/>
+        <path d="M925 67 H933 M929 63 V71" stroke="#93c5fd" stroke-width="1.8" stroke-linecap="round"/>
+
+        <rect x="784" y="90" width="26" height="24" rx="7" fill="#1a2550"/>
+        <rect x="816" y="90" width="26" height="24" rx="7" fill="#1a2550"/>
+        <rect x="848" y="90" width="26" height="24" rx="7" fill="#1a2550"/>
+        <rect x="882" y="90" width="322" height="24" rx="12" fill="#151d40"/>
+        <circle cx="898" cy="102" r="6" fill="#a3e635"/>
+        <text x="912" y="107" font-family="'Segoe UI', Roboto, Arial, sans-serif" font-size="13" fill="#cdd8fb">internet://home/</text>
+        <rect x="784" y="121" width="420" height="3" rx="1.5" fill="url(#accent)"/>
+
+        <text x="792" y="156" font-family="'Segoe UI', Roboto, Arial, sans-serif" font-size="24" font-weight="700" fill="#93c5fd">Welcome to Internet</text>
+        <text x="792" y="178" font-family="'Segoe UI', Roboto, Arial, sans-serif" font-size="13" fill="#c5d0f0">Pages with <tspan font-weight="700" fill="#ffffff">bold</tspan>, <tspan font-style="italic" fill="#ffffff">italic</tspan> and <tspan font-family="Consolas, 'Courier New', monospace" fill="#67e8f9">inline code</tspan>.</text>
+
+        <rect x="792" y="192" width="4" height="34" rx="2" fill="#06b6d4"/>
+        <text x="806" y="208" font-family="'Segoe UI', Roboto, Arial, sans-serif" font-size="12" fill="#a9b6dc">Quotes, lists and tables</text>
+        <text x="806" y="223" font-family="'Segoe UI', Roboto, Arial, sans-serif" font-size="12" fill="#a9b6dc">travel over the Internet protocol.</text>
+
+        <g>
+          <rect x="1050" y="196" width="154" height="24" fill="#1d3a8a" fill-opacity="0.75"/>
+          <rect x="1050" y="220" width="154" height="24" fill="#ffffff" fill-opacity="0.04"/>
+          <rect x="1050" y="196" width="154" height="72" fill="none" stroke="#2f4380"/>
+          <line x1="1112" y1="196" x2="1112" y2="268" stroke="#2f4380"/>
+          <line x1="1050" y1="220" x2="1204" y2="220" stroke="#2f4380"/>
+          <line x1="1050" y1="244" x2="1204" y2="244" stroke="#2f4380"/>
+          <g font-family="'Segoe UI', Roboto, Arial, sans-serif" font-size="11" fill="#dbe6ff">
+            <text x="1058" y="212" font-weight="700">Part</text>
+            <text x="1120" y="212" font-weight="700">Job</text>
+            <text x="1058" y="236">Registry</text>
+            <text x="1120" y="236">Names</text>
+            <text x="1058" y="260">Node</text>
+            <text x="1120" y="260">Sites</text>
+          </g>
+        </g>
+      </g>
+    </g>
+  </g>
+</svg>
