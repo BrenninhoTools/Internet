@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Internet",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Open internet:// sites in Chrome through the local Internet gateway. Type \"in\" and a space in the address bar.",
   "minimum_chrome_version": "110",
   "icons": {

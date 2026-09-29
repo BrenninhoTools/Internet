@@ -57,7 +57,15 @@ The result is an unsigned `Internet.app`. Sign it with your own Apple developer 
 
 ### Continuous integration
 
-`.github/workflows/build.yml` builds, tests and packages Windows, macOS and Linux, builds the Android APK, and builds the unsigned iOS app.
+`.github/workflows/build.yml` builds, tests and packages Windows, macOS and Linux, builds the Android APK, builds the unsigned iOS app, and checks the Docker image. It runs on every push and pull request.
+
+### Releases
+
+What changed in each version is written in [documents/CHANGELOG.md](documents/CHANGELOG.md).
+
+A release is never published by itself. To publish one, open **Actions**, choose the **release** workflow and press **Run workflow**. It asks for the version (`0.1.0`, without the `v`), and whether the release is a pre-release or a draft that you publish later by hand. The workflow refuses to go on when the version is not the one in `CMakeLists.txt`, when `documents/CHANGELOG.md` has no section for it, or when the tag already exists. Then it runs the whole build with its tests, and creates the tag and the GitHub release with the Windows, macOS and Linux packages, the Android APK, the unsigned iOS app and a `SHA256SUMS.txt`. The release notes are that version's section of the changelog.
+
+To prepare the next version, change the version in `CMakeLists.txt` (and in `android/app/build.gradle`, `ios/Info.plist` and `extension/chrome/manifest.json`), and add its section to the changelog.
 
 ## Icon
 
@@ -326,4 +334,4 @@ The API uses `API <METHOD> <path> <token>`. Errors are `ERR <code>` with `400`, 
 
 ## Limits
 
-The registry records the address a node connects from, so nodes on the same computer are found at `127.0.0.1`. Reaching a node from another machine needs the registry to see that node's LAN address, which happens when the node runs on that other machine and registers over the network.
+The registry records the address a node connects from, so nodes on the same computer are found at `127.0.0.1`. Reaching a node from another machine needs the registry to see that node's LAN address, which happens when the node runs on that other machine and registers over the network. A registry that answers with a loopback address to a remote client is understood as its own address, and a server that hosts sites for the internet announces them with `public_host` (see *Running a server online*).

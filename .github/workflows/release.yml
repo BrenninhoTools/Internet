@@ -1,0 +1,141 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to publish, without the v. It must match CMakeLists.txt and documents/CHANGELOG.md.
+        required: true
+        default: 0.1.0
+        type: string
+      prerelease:
+        description: Mark the release as a pre-release
+        required: false
+        default: false
+        type: boolean
+      draft:
+        description: Create the release as a draft that you publish by hand
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the version
+        id: check
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -eu
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::The version must look like 1.2.3, without a v"
+            exit 1
+          fi
+          declared=$(sed -n 's/^project(Internet VERSION \([0-9][0-9.]*\).*/\1/p' CMakeLists.txt)
+          if [ "$declared" != "$VERSION" ]; then
+            echo "::error::CMakeLists.txt is at version $declared, not $VERSION"
+            exit 1
+          fi
+          if ! grep -Fq "## [$VERSION]" documents/CHANGELOG.md; then
+            echo "::error::documents/CHANGELOG.md has no section for $VERSION"
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" > /dev/null 2>&1; then
+            echo "::error::The tag v$VERSION already exists"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: check
+    uses: ./.github/workflows/build.yml
+
+  publish:
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: internet-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Prepare the files
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          set -eu
+          mkdir release
+          for file in artifacts/*; do
+            name=$(basename "$file")
+            case "$name" in
+              Internet-unsigned.ipa) cp "$file" "release/Internet-$VERSION-ios-unsigned.ipa" ;;
+              *.apk) cp "$file" "release/Internet-$VERSION-android.apk" ;;
+              *) cp "$file" "release/$name" ;;
+            esac
+          done
+          count=$(ls release | wc -l)
+          if [ "$count" -lt 5 ]; then
+            echo "::error::Expected the Windows, macOS and Linux packages, the APK and the IPA, but found $count files"
+            ls -l release
+            exit 1
+          fi
+          (cd release && sha256sum * > SHA256SUMS.txt)
+          ls -l release
+
+      - name: Write the release notes
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          set -eu
+          awk -v version="$VERSION" '
+            $0 ~ "^## \\[" version "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found && /^\[[^]]+\]: / { next }
+            found { print }
+          ' documents/CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::error::The section for $VERSION in documents/CHANGELOG.md is empty"
+            exit 1
+          fi
+          {
+            echo
+            echo "### Downloads"
+            echo
+            echo "- Windows, macOS and Linux packages with the app, the command line and the server"
+            echo "- Android APK, signed with the debug key"
+            echo "- iOS app, unsigned: sign it with your own Apple developer identity or a sideloading tool"
+            echo "- SHA256SUMS.txt to check the files"
+          } >> notes.md
+          cat notes.md
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.check.outputs.version }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          DRAFT: ${{ inputs.draft }}
+        run: |
+          set -eu
+          options=(--target "$GITHUB_SHA" --title "Internet v$VERSION" --notes-file notes.md)
+          if [ "$PRERELEASE" = "true" ]; then options+=(--prerelease); fi
+          if [ "$DRAFT" = "true" ]; then options+=(--draft); fi
+          gh release create "v$VERSION" release/* "${options[@]}"
