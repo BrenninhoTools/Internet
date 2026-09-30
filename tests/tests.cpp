@@ -302,6 +302,7 @@ int runServerTests();
 int runGatewayTests();
 int runGoTests();
 int runAuthTests();
+int runDeepTests();
 
 int main() {
     testUrls();
@@ -315,6 +316,7 @@ int main() {
     failures += runGatewayTests();
     failures += runGoTests();
     failures += runAuthTests();
+    failures += runDeepTests();
     if (failures == 0) std::cout << "all tests passed\n";
     return failures == 0 ? 0 : 1;
 }

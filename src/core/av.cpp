@@ -10,6 +10,7 @@
 #include <queue>
 #include <unordered_map>
 
+#include "avdeep.hpp"
 #include "deflate.hpp"
 #include "goscan.hpp"
 #include "sha256.hpp"
@@ -236,6 +237,7 @@ std::string detectFileType(const std::string& name, const std::uint8_t* data, st
         startsWith(data, size, "RIFF", 4))
         return "image";
     if (startsWith(data, size, "\xD0\xCF\x11\xE0", 4)) return "office";
+    if (looksLikeLnk(data, size)) return "lnk";
     if (startsWith(data, size, "\x1F\x8B", 2) || startsWith(data, size, "7z\xBC\xAF", 4) || startsWith(data, size, "Rar!", 4))
         return "archive";
     if (!looksLikeText(data, size)) return "binary";
@@ -595,6 +597,10 @@ struct Scanner::Impl {
             if (entry.size > options.entryLimit || budget + entry.size > options.archiveLimit) continue;
             std::vector<std::uint8_t> content;
             if (!extractZip(data, size, entry, options.entryLimit, content, error)) continue;
+            std::string partName = lowered(path);
+            if ((partName.size() > 5 && partName.compare(partName.size() - 5, 5, ".rels") == 0) ||
+                (partName.size() > 4 && partName.compare(partName.size() - 4, 4, ".xml") == 0))
+                addDeep(reviewOfficePart(path, std::string(content.begin(), content.end())), result, location + "!" + path);
             ++inspected;
             budget += content.size();
             ScanResult child = scanInternal(location + "!" + path, content.data(), content.size(), options, depth + 1, budget);
@@ -614,6 +620,43 @@ struct Scanner::Impl {
         for (const Finding& finding : child.findings) {
             addFinding(result, finding.rule, finding.category, finding.description, finding.severity,
                        finding.location.empty() ? where : finding.location);
+        }
+    }
+
+    void addDeep(const std::vector<DeepIssue>& issues, ScanResult& result, const std::string& location) const {
+        for (const DeepIssue& issue : issues) addFinding(result, issue.rule, issue.category, issue.description, issue.severity, location);
+    }
+
+    void scanLayers(const std::string& text, const ScanOptions& options, int depth, std::size_t& budget, ScanResult& result,
+                    const std::string& location) const {
+        if (depth >= options.archiveDepth) return;
+        std::size_t room = options.archiveLimit > budget ? options.archiveLimit - budget : 0;
+        for (const DecodedLayer& layer : decodeLayers(text, room)) {
+            std::string where = location + "!decoded-" + layer.label + "." + layer.extension;
+            budget += layer.bytes.size();
+            ScanResult child = scanInternal(where, reinterpret_cast<const std::uint8_t*>(layer.bytes.data()), layer.bytes.size(), options, depth + 1, budget);
+            bool dangerous = std::any_of(child.findings.begin(), child.findings.end(), [](const Finding& finding) { return finding.severity >= 50; });
+            mergeChild(result, child, where);
+            if (dangerous)
+                addFinding(result, "Heur.Obfuscation.HiddenPayload", "Script", "Dangerous content is hidden inside encoded text", 60, location);
+        }
+    }
+
+    void analyzeOle(const std::uint8_t* data, std::size_t size, const ScanOptions& options, int depth, std::size_t& budget,
+                    ScanResult& result, const std::string& location) const {
+        OleReport report = readOle(data, size);
+        if (!report.valid) return;
+        addDeep(reviewOleReport(report), result, location);
+        if (depth >= options.archiveDepth) return;
+        for (const VbaModule& module : report.modules) {
+            std::string where = location + "!vba-" + module.name + ".bas";
+            budget += module.source.size();
+            mergeChild(result, scanInternal(where, reinterpret_cast<const std::uint8_t*>(module.source.data()), module.source.size(), options, depth + 1, budget), where);
+        }
+        for (const std::string& payload : report.embeddedPayloads) {
+            std::string where = location + "!embedded.exe";
+            budget += payload.size();
+            mergeChild(result, scanInternal(where, reinterpret_cast<const std::uint8_t*>(payload.data()), payload.size(), options, depth + 1, budget), where);
         }
     }
 
@@ -802,12 +845,21 @@ struct Scanner::Impl {
         bool textual = isTextType(result.type);
         matchPatterns(data, used, scope, textual, result, location);
         analyzeName(name, result.type, result, location);
-        if (result.type == "pe") analyzePe(data, used, result, location);
+        if (result.type == "pe") {
+            analyzePe(data, used, result, location);
+            addDeep(reviewPeImports(data, used), result, location);
+        }
         if (result.type == "elf") analyzeElf(data, used, result, location);
+        if (result.type == "office") analyzeOle(data, used, options, depth, budget, result, location);
+        if (result.type == "lnk") {
+            addDeep(reviewLnk(data, used), result, location);
+            scanLayers(foldToAscii(data, std::min<std::size_t>(used, 1u * 1024u * 1024u)), options, depth, budget, result, location);
+        }
         if (goBinary) addGoIssues(reviewGoBinary(goInfo), result, location);
         if (isTextType(result.type)) {
             analyzeText(data, used, result.type, result, location);
             std::string source(reinterpret_cast<const char*>(data), std::min<std::size_t>(used, 4u * 1024u * 1024u));
+            scanLayers(source, options, depth, budget, result, location);
             if (result.type == "go") {
                 result.language = "Go source";
                 addGoIssues(reviewGoSource(source), result, location);
