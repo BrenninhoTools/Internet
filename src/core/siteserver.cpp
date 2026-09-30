@@ -210,10 +210,17 @@ void SiteServer::start() {
     if (google.redirectUri.empty() && gateway_) google.redirectUri = gateway_->indexUrl() + "auth/google/callback";
     if (!config_.googleAuthUrl.empty()) google.authUrl = config_.googleAuthUrl;
     if (!config_.googleTokenUrl.empty()) google.tokenUrl = config_.googleTokenUrl;
+    if (!config_.googleKeysUrl.empty()) google.keysUrl = config_.googleKeysUrl;
+    google.verifySignature = config_.googleVerifySignature;
+    google.minimumKeyBits = static_cast<std::size_t>(std::max(config_.googleMinKeyBits, 512));
+    google.allowedDomains = GoogleAuth::splitList(config_.googleAllowedDomains);
+    google.allowedEmails = GoogleAuth::splitList(config_.googleAllowedEmails);
     google_.configure(google);
     if (google_.enabled()) {
         log("Sign in with Google is on. The redirect URI to add to your Google OAuth client is " + google.redirectUri);
         if (!httpsAvailable()) log("This build cannot make HTTPS requests, so signing in will fail until it is built with HTTPS support");
+        if (!google.verifySignature) log("Warning: the signature of Google's identities is not checked");
+        if (!google.allowedDomains.empty() || !google.allowedEmails.empty()) log("Only approved Google accounts can sign in");
     } else if (!config_.googleClientId.empty() || !config_.googleClientSecret.empty()) {
         log("Sign in with Google needs a client id, a client secret and the web gateway");
     }
@@ -512,13 +519,57 @@ Message SiteServer::routeAccount(const std::vector<std::string>& parts, const st
     std::optional<Account> account = accounts_.find(who.account);
     if (!account) return failJson("401", "This account no longer exists");
     if (parts.size() == 2) {
-        if (method != "GET") return failJson("405", "Use GET");
-        return okJson(profileJson(*account));
+        if (method == "GET") return okJson(profileJson(*account));
+        if (method != "DELETE") return failJson("405", "Use GET or DELETE");
+        Json input;
+        std::string problem;
+        if (!Json::parse(body, input, problem)) return failJson("400", "Invalid JSON: " + problem);
+        std::string confirm = input.stringOr("confirm", "");
+        std::transform(confirm.begin(), confirm.end(), confirm.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        std::string email = account->email;
+        std::transform(email.begin(), email.end(), email.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (confirm != email) return failJson("422", "Send the email address of the account in \"confirm\" to delete it");
+        const Json* removeSites = input.find("deleteSites");
+        bool deleteSites = removeSites != nullptr && removeSites->type() == Json::Type::Bool && removeSites->asBool();
+        std::vector<std::string> owned = accounts_.deleteAccount(account->id);
+        std::uint64_t removed = 0;
+        if (deleteSites) {
+            for (const std::string& name : owned) {
+                if (validSite(name) && deleteSite(name, problem)) ++removed;
+            }
+        }
+        log("[account] " + account->email + " deleted the account" + (deleteSites ? " and its sites" : ""));
+        return okJson(Json::object().set("deleted", true).set("sites", static_cast<std::uint64_t>(owned.size())).set("sitesRemoved", removed));
     }
     if (parts.size() == 3 && parts[2] == "session") {
         if (method != "DELETE") return failJson("405", "Use DELETE");
         accounts_.endSession(who.token);
         return okJson(Json::object().set("signedOut", true));
+    }
+    if (parts.size() >= 3 && parts[2] == "sessions") {
+        if (parts.size() == 3 && method == "GET") {
+            std::string current = accounts_.sessionId(who.token);
+            Json list = Json::array();
+            for (const SessionInfo& info : accounts_.sessionsOf(account->id)) {
+                list.push(Json::object()
+                              .set("id", info.id)
+                              .set("created", info.created)
+                              .set("lastUsed", info.lastUsed)
+                              .set("expires", info.expires)
+                              .set("current", info.id == current));
+            }
+            return okJson(Json::object().set("sessions", std::move(list)));
+        }
+        if (parts.size() == 3 && method == "DELETE") {
+            std::size_t ended = accounts_.endAllSessions(account->id);
+            log("[account] " + account->email + " signed out of every device");
+            return okJson(Json::object().set("ended", static_cast<std::uint64_t>(ended)));
+        }
+        if (parts.size() == 4 && method == "DELETE") {
+            if (!accounts_.endSessionById(account->id, parts[3])) return failJson("404", "Session not found");
+            return okJson(Json::object().set("ended", parts[3]));
+        }
+        return failJson("405", "Use GET or DELETE");
     }
     if (parts.size() == 4 && parts[2] == "sync") {
         const std::string& kind = parts[3];

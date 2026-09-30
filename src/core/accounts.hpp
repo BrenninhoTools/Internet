@@ -12,6 +12,7 @@ namespace internet {
 
 constexpr int kSessionSeconds = 30 * 24 * 3600;
 constexpr int kHandoffSeconds = 120;
+constexpr int kIdleSeconds = 14 * 24 * 3600;
 constexpr std::size_t kMaxSyncBytes = 512 * 1024;
 
 struct Account {
@@ -22,6 +23,13 @@ struct Account {
     std::string picture;
     std::int64_t created = 0;
     std::int64_t lastLogin = 0;
+};
+
+struct SessionInfo {
+    std::string id;
+    std::int64_t created = 0;
+    std::int64_t lastUsed = 0;
+    std::int64_t expires = 0;
 };
 
 struct SyncBlob {
@@ -40,6 +48,11 @@ public:
     std::string createSession(const std::string& accountId, int lifetimeSeconds = kSessionSeconds);
     std::optional<Account> sessionAccount(const std::string& token);
     void endSession(const std::string& token);
+    std::string sessionId(const std::string& token) const;
+    std::vector<SessionInfo> sessionsOf(const std::string& accountId) const;
+    std::size_t endAllSessions(const std::string& accountId);
+    bool endSessionById(const std::string& accountId, const std::string& id);
+    std::vector<std::string> deleteAccount(const std::string& accountId);
 
     std::string createHandoff(const std::string& accountId, const std::string& challenge);
     std::optional<std::string> redeemHandoff(const std::string& code, const std::string& verifier);
@@ -58,6 +71,8 @@ private:
     struct SessionRecord {
         std::string account;
         std::int64_t expires = 0;
+        std::int64_t created = 0;
+        std::int64_t lastUsed = 0;
     };
 
     struct HandoffRecord {

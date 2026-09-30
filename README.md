@@ -156,6 +156,10 @@ The engine lives in `src/core` and is shared by the app, the command line and th
   - *Supply chain*: every imported or required module is compared with a list of well known modules. A path that is one or two letters away from a popular module but has a different owner (`github.com/gorrila/mux`) is flagged as a typosquat, and so are modules loaded from bare IP addresses, tunnels or paste sites and attack frameworks such as Sliver or Merlin. The same review runs on the dependency list that Go writes into every compiled program.
   - *Compiled programs*: the Go build information (version, dependencies, build flags) is read, the runtime tables identify even stripped programs, and capability rules (shellcode loading, AMSI patching, ransomware, keylogging, clipboard swapping, persistence) run on compact programs. Large programs with many dependencies, such as `gh` or `git-lfs`, are not judged by the standard library calls they make.
   - Scan results show the language, for example `Go (go1.25.5)`.
+- **Hidden content**: text is searched for content that has been encoded to hide it (base64 and PowerShell `-EncodedCommand`, long hex strings, `\xNN` escapes, `String.fromCharCode`, `[char[]]` and `Chr()` chains), up to three layers deep. Every decoded layer is scanned like a file of its own, and when it turns out to be dangerous the file gets `Heur.Obfuscation.HiddenPayload`. Inline images and unknown binary data are left alone.
+- **Office documents**: old Office files (OLE) are opened and their VBA macros are decompressed and reviewed (macros that run by themselves and start programs, download files or load machine code, macros built from character codes), and objects that hide a program or use the old Equation Editor are flagged. Modern documents (`.docx`, `.xlsx`) are checked for templates and objects loaded from the internet or from another computer, dynamic data fields that start programs, and the Follina address (`ms-msdt:`); their macros are reviewed too.
+- **Shortcuts**: `.lnk` files that start a script engine with hidden windows, encoded commands or remote addresses are flagged, and so are shortcuts far larger than normal. Shortcuts to ordinary programs, such as the command prompt, are clean.
+- **Packed programs**: besides sections and entropy, the import table is read, and a program that imports almost nothing and finds its functions when it runs looks packed. The engine was checked against more than 36,000 real files of Windows and installed programs, and the new checks did not raise a false alarm.
 - **Real-time protection**: pages are scanned before they are shown, downloads are refused when malicious, files are scanned when saved in the editor, and hosted sites never serve a malicious file (status `451`).
 - **Quarantine**: dangerous files found by a scan are moved to `security/quarantine` in the data folder, scrambled, and can be restored or deleted.
 - **Firewall**: rate limit, connection limit and temporary bans for abusive computers. Loopback is never limited. The registry also reserves names such as `api` and limits how many names one computer can register.
@@ -225,6 +229,9 @@ These keys go in `server.conf`:
 | `google_client_id`, `google_client_secret` | empty | turn on signing in with Google (see above) |
 | `google_redirect_uri` | the gateway address plus `/auth/google/callback` | set it only when a proxy changes the address |
 | `max_sites_per_account` | `5` | how many sites one signed in person can create |
+| `google_allowed_domains`, `google_allowed_emails` | empty | limit sign-in to some organizations or addresses, separated by commas |
+| `google_verify_signature` | `true` | check the signature of the identity from Google, turn it off only for tests |
+| `google_keys_url`, `google_min_key_bits` | Google's address, `2048` | where the signing keys come from and the smallest key that is trusted |
 
 Every page still passes through Internet Security before it is served, uploads are scanned, and the firewall limits requests and bans abusive hosts. Keep `data/token.txt` secret, because it controls the API. Requests that arrive through a proxy on the same machine look like they come from the machine itself, which the firewall does not limit, so put the rate limits in the proxy.
 
@@ -249,7 +256,8 @@ The server needs to reach `oauth2.googleapis.com` over HTTPS. Windows uses the s
 
 - **On the web**: `/login` shows a **Sign in with Google** button, `/account` lists your sites and lets you sign out. The session lives in an `HttpOnly` cookie that is only sent to the gateway's own address, never to the sites.
 - **In the app**: when the server offers sign-in, the sidebar shows **Sign in with Google**. The app opens your browser, waits on a temporary local address, and trades a one-time code for a session (the code is bound to a secret that only the app knows). The session is kept in `account.txt` in the app's data folder, and **Sign out** ends it on the server too.
-- **Safety**: the sign-in uses the authorization code flow with PKCE and a `state` value, the client secret never leaves the server, the identity comes straight from Google over TLS and is checked (issuer, audience, expiry, verified email), and sessions are stored only as hashes.
+- **Safety**: the sign-in uses the authorization code flow with PKCE, a `state` value and a `nonce`, and the client secret never leaves the server. The identity from Google is checked twice: its **RS256 signature** is verified with Google's published keys (fetched over HTTPS, kept for an hour, only 2048-bit RSA keys are trusted), and its claims are checked (issuer, audience and authorized party, expiry and issue time, the nonce of this very sign-in, a verified email). Sessions are stored only as hashes, end after 30 days or 14 days without use, and can be listed and ended one by one or all at once. On https the cookie is `__Host-internet_session`, locked to the exact host, and the account pages forbid caching, framing and scripts.
+- **Who may sign in**: by default any Google account can. To limit it, set `google_allowed_domains` (organizations, checked with Google's `hd` claim so that an address at your domain that is not managed by your organization is refused) and `google_allowed_emails` (exact addresses).
 
 ### What an account can do
 
@@ -279,6 +287,8 @@ The API is a node named `api`. A request is sent as `API <METHOD> <path> <token>
 | `POST /v1/session/exchange` | trade a one-time sign-in code (`{"code", "verifier"}`) for a session token (public) |
 | `GET /v1/account`, `DELETE /v1/account/session` | the signed in profile and its sites, or sign out |
 | `GET`, `PUT /v1/account/sync/{bookmarks,history,settings}` | read or store the synced data of the account |
+| `GET /v1/account/sessions`, `DELETE /v1/account/sessions[/{id}]` | list the sessions of the account (the current one is marked), end one or all of them |
+| `DELETE /v1/account` | delete the account (`{"confirm": "<its email>", "deleteSites": true}`), its synced data and, when asked, its sites |
 
 Everything except `/v1/status` and `/v1/session/exchange` needs the administrator token or the session token of an account. A session token only sees the sites of its account and cannot use `/v1/security/...`. From the terminal (the body of `PUT` and `POST` is read from standard input):
 

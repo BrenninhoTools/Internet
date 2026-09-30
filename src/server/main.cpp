@@ -172,6 +172,11 @@ internet::ServerConfig loadConfig(const fs::path& directory, std::function<void(
     config.googleRedirectUri = stringValue(values, "google_redirect_uri", "");
     config.googleAuthUrl = stringValue(values, "google_auth_url", "");
     config.googleTokenUrl = stringValue(values, "google_token_url", "");
+    config.googleKeysUrl = stringValue(values, "google_keys_url", "");
+    config.googleAllowedDomains = stringValue(values, "google_allowed_domains", "");
+    config.googleAllowedEmails = stringValue(values, "google_allowed_emails", "");
+    config.googleVerifySignature = boolValue(values, "google_verify_signature", true);
+    config.googleMinKeyBits = intValue(values, "google_min_key_bits", 2048);
     config.maxSitesPerAccount = intValue(values, "max_sites_per_account", 5);
     config.publicHost = stringValue(values, "public_host", "");
     config.openRegistry = boolValue(values, "open_registry", true);
@@ -273,7 +278,8 @@ int run(const fs::path& directory) {
             std::to_string(config.nodePortStart + config.nodePortCount - 1) + (config.openRegistry ? ", anyone can register sites" : ", only this server can register sites"));
     }
     if (!config.gatewayDomain.empty() && server.gatewayPort() != 0) {
-        log(std::string("Public web address: ") + (config.gatewayHttps ? "https" : "http") + "://" + config.gatewayDomain + "/ (sites at NAME." + config.gatewayDomain + ")");
+        log(std::string("Public web address: ") + (config.gatewayHttps ? "https" : "http") + "://" + config.gatewayDomain +
+            (config.gatewayPublicPort > 0 ? ":" + std::to_string(config.gatewayPublicPort) : std::string()) + "/ (sites at NAME." + config.gatewayDomain + ")");
     }
 
     std::signal(SIGINT, onSignal);

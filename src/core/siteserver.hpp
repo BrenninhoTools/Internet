@@ -51,6 +51,11 @@ struct ServerConfig {
     std::string googleRedirectUri;
     std::string googleAuthUrl;
     std::string googleTokenUrl;
+    std::string googleKeysUrl;
+    std::string googleAllowedDomains;
+    std::string googleAllowedEmails;
+    bool googleVerifySignature = true;
+    int googleMinKeyBits = 2048;
     int maxSitesPerAccount = 5;
     std::function<void(const std::string&)> log;
 };

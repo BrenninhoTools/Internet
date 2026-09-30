@@ -294,6 +294,24 @@ void App::signOut() {
     toast("Signed out");
 }
 
+void App::signOutEverywhere() {
+    bool started = accountCall("DELETE", "/v1/account/sessions", "", [this](const ApiResponse& response) {
+        if (!response.ok) {
+            toast(apiErrorText(response), ToastKind::Error);
+            return;
+        }
+        accountToken_.clear();
+        account_ = AccountProfile{};
+        profileLoaded_ = false;
+        forgetSyncState();
+        syncMessage_.clear();
+        syncedClock_ = 0;
+        saveAccount();
+        toast("Signed out of every device");
+    });
+    if (!started) toast("Wait for the last request to finish");
+}
+
 bool App::accountCall(const std::string& method, const std::string& path, const std::string& body,
                       std::function<void(const ApiResponse&)> done) {
     if (callJob_) return false;
@@ -675,6 +693,8 @@ void App::drawAccount(float width) {
     }
     ImGui::SameLine();
     if (textButton("acct-out", "Sign out", Icon::Close, false, half)) signOut();
+    if (ImGui::SmallButton("Sign out everywhere")) signOutEverywhere();
+    if (ImGui::IsItemHovered() && !touch_) ImGui::SetTooltip("End every session of this account, on every device");
     ImGui::PushTextWrapPos(0.0f);
     if (syncJob_) {
         ImGui::TextColored(kMuted, "Syncing...");

@@ -96,8 +96,12 @@ void Accounts::load() {
             SessionRecord record;
             record.account = item.stringOr("account", "");
             if (const Json* expires = item.find("expires")) record.expires = static_cast<std::int64_t>(expires->asNumber());
+            if (const Json* created = item.find("created")) record.created = static_cast<std::int64_t>(created->asNumber());
+            record.lastUsed = record.created;
+            if (const Json* used = item.find("lastUsed")) record.lastUsed = static_cast<std::int64_t>(used->asNumber());
+            if (record.lastUsed == 0) record.lastUsed = now;
             std::string hash = item.stringOr("hash", "");
-            if (!hash.empty() && !record.account.empty() && record.expires > now) sessions_[hash] = std::move(record);
+            if (!hash.empty() && !record.account.empty() && record.expires > now && now - record.lastUsed <= kIdleSeconds) sessions_[hash] = std::move(record);
         }
     }
 }
@@ -109,7 +113,12 @@ void Accounts::save() const {
     for (const auto& owner : owners_) sites.push(Json::object().set("name", owner.first).set("account", owner.second));
     Json sessions = Json::array();
     for (const auto& session : sessions_) {
-        sessions.push(Json::object().set("hash", session.first).set("account", session.second.account).set("expires", session.second.expires));
+        sessions.push(Json::object()
+                          .set("hash", session.first)
+                          .set("account", session.second.account)
+                          .set("expires", session.second.expires)
+                          .set("created", session.second.created)
+                          .set("lastUsed", session.second.lastUsed));
     }
     Json root = Json::object().set("accounts", std::move(accounts)).set("sites", std::move(sites)).set("sessions", std::move(sessions));
     writeAtomically(directory_ / "accounts.json", root.dump());
@@ -167,7 +176,7 @@ std::string Accounts::createSession(const std::string& accountId, int lifetimeSe
     std::lock_guard<std::mutex> lock(mutex_);
     std::int64_t now = nowSeconds();
     purgeExpired(now);
-    sessions_[hashOf(token)] = SessionRecord{accountId, now + lifetimeSeconds};
+    sessions_[hashOf(token)] = SessionRecord{accountId, now + lifetimeSeconds, now, now};
     save();
     return token;
 }
@@ -177,10 +186,15 @@ std::optional<Account> Accounts::sessionAccount(const std::string& token) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto found = sessions_.find(hashOf(token));
     if (found == sessions_.end()) return std::nullopt;
-    if (found->second.expires <= nowSeconds()) {
+    std::int64_t now = nowSeconds();
+    if (found->second.expires <= now || now - found->second.lastUsed > kIdleSeconds) {
         sessions_.erase(found);
         save();
         return std::nullopt;
+    }
+    if (now - found->second.lastUsed >= 3600) {
+        found->second.lastUsed = now;
+        save();
     }
     for (const Account& account : accounts_) {
         if (account.id == found->second.account) return account;
@@ -191,6 +205,74 @@ std::optional<Account> Accounts::sessionAccount(const std::string& token) {
 void Accounts::endSession(const std::string& token) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (sessions_.erase(hashOf(token)) != 0) save();
+}
+
+std::string Accounts::sessionId(const std::string& token) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::string hash = hashOf(token);
+    return sessions_.count(hash) != 0 ? hash.substr(0, 12) : std::string();
+}
+
+std::vector<SessionInfo> Accounts::sessionsOf(const std::string& accountId) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<SessionInfo> list;
+    std::int64_t now = nowSeconds();
+    for (const auto& session : sessions_) {
+        if (session.second.account != accountId || session.second.expires <= now) continue;
+        list.push_back(SessionInfo{session.first.substr(0, 12), session.second.created, session.second.lastUsed, session.second.expires});
+    }
+    return list;
+}
+
+std::size_t Accounts::endAllSessions(const std::string& accountId) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::size_t ended = 0;
+    for (auto it = sessions_.begin(); it != sessions_.end();) {
+        if (it->second.account == accountId) {
+            it = sessions_.erase(it);
+            ++ended;
+        } else {
+            ++it;
+        }
+    }
+    if (ended != 0) save();
+    return ended;
+}
+
+bool Accounts::endSessionById(const std::string& accountId, const std::string& id) {
+    if (id.size() < 8) return false;
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto it = sessions_.begin(); it != sessions_.end(); ++it) {
+        if (it->second.account == accountId && it->first.compare(0, id.size(), id) == 0) {
+            sessions_.erase(it);
+            save();
+            return true;
+        }
+    }
+    return false;
+}
+
+std::vector<std::string> Accounts::deleteAccount(const std::string& accountId) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::string> owned;
+    for (auto it = owners_.begin(); it != owners_.end();) {
+        if (it->second == accountId) {
+            owned.push_back(it->first);
+            it = owners_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (auto it = sessions_.begin(); it != sessions_.end();) {
+        it = it->second.account == accountId ? sessions_.erase(it) : std::next(it);
+    }
+    accounts_.erase(std::remove_if(accounts_.begin(), accounts_.end(), [&](const Account& account) { return account.id == accountId; }), accounts_.end());
+    if (accountId.find_first_not_of("0123456789abcdef") == std::string::npos && !accountId.empty()) {
+        std::error_code error;
+        fs::remove_all(directory_ / "sync" / accountId, error);
+    }
+    save();
+    return owned;
 }
 
 std::string Accounts::createHandoff(const std::string& accountId, const std::string& challenge) {

@@ -138,7 +138,7 @@ std::string pageStyle() {
            "</style>";
 }
 
-const char kCookieName[] = "internet_session";
+std::string cookieName(bool secure) { return secure ? "__Host-internet_session" : "internet_session"; }
 
 const char kGoogleLogo[] =
     "<svg width=\"18\" height=\"18\" viewBox=\"0 0 48 48\" aria-hidden=\"true\">"
@@ -162,12 +162,12 @@ std::string cookieValue(const std::string& header, const std::string& name) {
 }
 
 std::string sessionCookie(const std::string& token, bool secure) {
-    return std::string(kCookieName) + "=" + token + "; Path=/; Max-Age=" + std::to_string(kSessionSeconds) + "; HttpOnly; SameSite=Lax" +
+    return cookieName(secure) + "=" + token + "; Path=/; Max-Age=" + std::to_string(kSessionSeconds) + "; HttpOnly; SameSite=Lax" +
            (secure ? "; Secure" : "");
 }
 
 std::string clearedCookie(bool secure) {
-    return std::string(kCookieName) + "=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax" + (secure ? "; Secure" : "");
+    return cookieName(secure) + "=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax" + (secure ? "; Secure" : "");
 }
 
 std::string logoutToken(const std::string& session) { return sha256Hex(session + ":logout").substr(0, 16); }
@@ -504,7 +504,9 @@ void Gateway::handle(Socket& socket, const std::string& peer) {
     std::string out = "HTTP/1.1 " + std::to_string(response.status) + " " + reason(response.status) + "\r\n";
     out += "Content-Type: " + response.type + "\r\n";
     out += "Content-Length: " + std::to_string(response.body.size()) + "\r\n";
-    out += "Connection: close\r\nCache-Control: no-cache\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\n";
+    out += "Connection: close\r\n";
+    if (response.headers.count("Cache-Control") == 0) out += "Cache-Control: no-cache\r\n";
+    out += "X-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\n";
     for (const auto& header : response.headers) out += header.first + ": " + header.second + "\r\n";
     out += "\r\n";
     if (!response.head) out += response.body;
@@ -587,17 +589,24 @@ Gateway::Response Gateway::accountRoute(const Request& request) {
         google = google_;
         secure = https_;
     }
-    auto page = [](int status, const std::string& title, const std::string& body) {
+    auto harden = [](Response& response) {
+        response.headers["Cache-Control"] = "no-store";
+        response.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+        response.headers["X-Frame-Options"] = "DENY";
+    };
+    auto page = [&](int status, const std::string& title, const std::string& body) {
         Response response;
         response.status = status;
         response.body = document(title, body);
+        harden(response);
         return response;
     };
-    auto redirect = [](const std::string& target) {
+    auto redirect = [&](const std::string& target) {
         Response response;
         response.status = 302;
         response.headers["Location"] = target;
         response.body = document("Redirect", "<p><a href=\"" + escapeHtml(target) + "\">Continue</a></p>");
+        harden(response);
         return response;
     };
     auto failed = [&](int status, const std::string& title, const std::string& message) {
@@ -606,7 +615,7 @@ Gateway::Response Gateway::accountRoute(const Request& request) {
     };
     if (!accounts || !google) return failed(404, "Sign-in is not available", "This server does not have accounts turned on.");
 
-    std::string session = cookieValue(request.cookie, kCookieName);
+    std::string session = cookieValue(request.cookie, cookieName(secure));
     std::optional<Account> who;
     if (!session.empty()) who = accounts->sessionAccount(session);
 
@@ -659,7 +668,12 @@ Gateway::Response Gateway::accountRoute(const Request& request) {
     if (request.path == "/logout") {
         if (!who) return redirect("/login");
         if (queryValue(request.query, "t") != logoutToken(session)) return redirect("/account");
-        accounts->endSession(session);
+        if (queryValue(request.query, "all") == "1") {
+            accounts->endAllSessions(who->id);
+            note("Signed out everywhere: " + who->email);
+        } else {
+            accounts->endSession(session);
+        }
         Response response = redirect("/login");
         response.headers["Set-Cookie"] = clearedCookie(secure);
         return response;
@@ -680,7 +694,8 @@ Gateway::Response Gateway::accountRoute(const Request& request) {
         }
         body += "</ul>";
     }
-    body += "<p><a class=\"button\" href=\"/logout?t=" + logoutToken(session) + "\">Sign out</a></p>";
+    body += "<p><a class=\"button\" href=\"/logout?t=" + logoutToken(session) + "\">Sign out</a> <a class=\"button\" href=\"/logout?all=1&amp;t=" + logoutToken(session) +
+            "\">Sign out everywhere</a></p>";
     return page(200, "Your account", body);
 }
 

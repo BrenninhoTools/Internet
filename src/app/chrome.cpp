@@ -694,6 +694,7 @@ std::vector<PaletteItem> App::buildPaletteItems() {
             startSync();
         });
         add("Sign out", account_.email, Icon::Close, colors.secondary, [this] { signOut(); });
+        add("Sign out everywhere", "End every session of this account", Icon::Close, colors.secondary, [this] { signOutEverywhere(); });
     } else if (discoveredLogin_ && !webBase().empty() && signInPhase_ == 0) {
         add("Sign in with Google", "Publish sites and sync your data", Icon::Globe, colors.primary, [this] { startSignIn(); });
     }

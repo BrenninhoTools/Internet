@@ -38,6 +38,7 @@ The first release. Internet is a small network of its own, written in C++17, wit
 
 - An **antivirus engine** shared by the app, the command line and the server: SHA-256 reputation, byte-pattern rules, file type detection, script, PE and ELF heuristics, name heuristics and inspection of zip, tar and gzip archives, with a score for every file.
 - **Go protection** for source files, `go.mod`, `go.sum` and programs compiled with Go, including typosquatting and supply chain checks.
+- **Deeper analysis**: content hidden in base64, PowerShell encoded commands, hex, escapes and character codes is decoded and scanned again, layer by layer. Office documents are opened (VBA macros are decompressed and reviewed, remote templates, dynamic data fields, the Follina address and embedded programs are flagged), shortcuts that launch script engines are reviewed, and packed programs are recognized by their import table. Checked against more than 36,000 real files with no false alarms.
 - **Real-time protection**: pages are scanned before they are shown, malicious downloads are refused and hosted sites never serve a malicious file.
 - A **quarantine**, a **firewall** with rate and connection limits and temporary bans, updatable **definitions**, and a **Security Center** (`Ctrl+J`) with an overview, scans, quarantine, firewall statistics and settings.
 
@@ -60,6 +61,7 @@ The first release. Internet is a small network of its own, written in C++17, wit
 #### Accounts
 
 - **Sign in with Google** on the web (`/login`, `/account`) and in the app. Signed in people own the sites they create, see and change only their own sites, upload the folder they host, and keep bookmarks, history and settings on every device.
+- **Checked sign-in**: the identity from Google has its RS256 signature verified with Google's keys, and its issuer, audience, authorized party, times and the nonce of the sign-in are checked. A server can accept only some organizations or addresses. Sessions expire when unused, can be listed and ended one by one or everywhere, an account can be deleted, the cookie is locked to the host on https, and the account pages forbid caching, framing and scripts.
 - An **HTTPS client** for the server (WinHTTP on Windows, Mbed TLS on Linux and macOS) and new API endpoints for accounts, sessions and synced data.
 
 #### Building and releasing

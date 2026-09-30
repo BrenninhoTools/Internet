@@ -86,13 +86,14 @@ bool loopbackHost(const std::string& host) {
     return name == "localhost" || name == "127.0.0.1" || name == "::1";
 }
 
-std::string buildRequest(const ParsedUrl& url, const std::string& contentType, const std::string& body) {
+std::string buildRequest(const std::string& method, const ParsedUrl& url, const std::string& contentType, const std::string& body) {
     bool defaultPort = (url.scheme == "https" && url.port == 443) || (url.scheme == "http" && url.port == 80);
-    std::string request = "POST " + url.path + " HTTP/1.1\r\n";
+    std::string request = method + " " + url.path + " HTTP/1.1\r\n";
     request += "Host: " + url.host + (defaultPort ? std::string() : ":" + std::to_string(url.port)) + "\r\n";
     request += "User-Agent: Internet/1.0\r\nAccept: application/json\r\n";
-    request += "Content-Type: " + contentType + "\r\n";
-    request += "Content-Length: " + std::to_string(body.size()) + "\r\nConnection: close\r\n\r\n";
+    if (!contentType.empty()) request += "Content-Type: " + contentType + "\r\n";
+    if (method == "POST") request += "Content-Length: " + std::to_string(body.size()) + "\r\n";
+    request += "Connection: close\r\n\r\n";
     request += body;
     return request;
 }
@@ -154,16 +155,17 @@ struct WinHandle {
     WinHandle& operator=(const WinHandle&) = delete;
 };
 
-HttpResult securePost(const ParsedUrl& url, const std::string& contentType, const std::string& body, int timeoutMs) {
+HttpResult securePost(const ParsedUrl& url, const std::string& method, const std::string& contentType, const std::string& body, int timeoutMs) {
     WinHandle session(WinHttpOpen(L"Internet/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
     if (!session.handle) return failure("cannot start the HTTPS client");
     WinHttpSetTimeouts(session.handle, timeoutMs, timeoutMs, timeoutMs, timeoutMs);
     WinHandle connection(WinHttpConnect(session.handle, widen(url.host).c_str(), url.port, 0));
     if (!connection.handle) return failure("cannot connect to " + url.host);
-    WinHandle request(WinHttpOpenRequest(connection.handle, L"POST", widen(url.path).c_str(), nullptr, WINHTTP_NO_REFERER,
+    WinHandle request(WinHttpOpenRequest(connection.handle, widen(method).c_str(), widen(url.path).c_str(), nullptr, WINHTTP_NO_REFERER,
                                          WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE));
     if (!request.handle) return failure("cannot open the HTTPS request");
-    std::wstring headers = L"Content-Type: " + widen(contentType) + L"\r\nAccept: application/json\r\n";
+    std::wstring headers = L"Accept: application/json\r\n";
+    if (!contentType.empty()) headers += L"Content-Type: " + widen(contentType) + L"\r\n";
     DWORD size = static_cast<DWORD>(body.size());
     if (!WinHttpSendRequest(request.handle, headers.c_str(), static_cast<DWORD>(-1), body.empty() ? WINHTTP_NO_REQUEST_DATA : const_cast<char*>(body.data()),
                             size, size, 0))
@@ -403,20 +405,30 @@ bool httpsAvailable() {
 #endif
 }
 
-HttpResult httpPost(const std::string& url, const std::string& contentType, const std::string& body, int timeoutMs) {
+namespace {
+
+HttpResult perform(const std::string& method, const std::string& url, const std::string& contentType, const std::string& body, int timeoutMs) {
     ParsedUrl parsed;
     if (!parseUrl(url, parsed)) return failure("invalid address");
     if (parsed.scheme == "http") {
         if (!loopbackHost(parsed.host)) return failure("plain HTTP is only allowed for local addresses");
-        return plainPost(parsed, buildRequest(parsed, contentType, body), timeoutMs);
+        return plainPost(parsed, buildRequest(method, parsed, contentType, body), timeoutMs);
     }
 #if defined(INTERNET_TLS_WINHTTP)
-    return securePost(parsed, contentType, body, timeoutMs);
+    return securePost(parsed, method, contentType, body, timeoutMs);
 #elif defined(INTERNET_TLS_MBEDTLS)
-    return securePost(parsed, buildRequest(parsed, contentType, body), timeoutMs);
+    return securePost(parsed, buildRequest(method, parsed, contentType, body), timeoutMs);
 #else
     return failure("HTTPS is not available in this build");
 #endif
 }
+
+}
+
+HttpResult httpPost(const std::string& url, const std::string& contentType, const std::string& body, int timeoutMs) {
+    return perform("POST", url, contentType, body, timeoutMs);
+}
+
+HttpResult httpGet(const std::string& url, int timeoutMs) { return perform("GET", url, std::string(), std::string(), timeoutMs); }
 
 }

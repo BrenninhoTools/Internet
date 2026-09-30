@@ -266,6 +266,7 @@ private:
     void cancelSignIn();
     void pollAccount();
     void signOut();
+    void signOutEverywhere();
     void sessionExpired();
     bool accountCall(const std::string& method, const std::string& path, const std::string& body,
                      std::function<void(const ApiResponse&)> done);
